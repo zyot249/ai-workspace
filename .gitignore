@@ -1,0 +1,22 @@
+.vscode/
+.idea/
+.remember/
+.DS_Store
+
+# Node
+node_modules/
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Rust
+target/
+
+# env
+.env
+.env.local
