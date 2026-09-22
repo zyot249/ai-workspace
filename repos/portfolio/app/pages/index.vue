@@ -18,7 +18,7 @@ const { isDark } = useDarkMode()
 const { chapter, progress } = useJourneyProgress()
 const sceneAvailable = ref(true)
 
-const panel = 'rounded-2xl p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-950/60 backdrop-blur'
+const panel = 'rounded-2xl p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm'
 </script>
 
 <template>

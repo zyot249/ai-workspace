@@ -67,7 +67,7 @@ export const STOPS: readonly Stop[] = [
     strength: 0.1,
     speed: 0.6,
     scale: 0.9,
-    offsetWide: [-1.8, -0.2, 0],
+    offsetWide: [-1.6, -0.2, -1],
     offsetNarrow: [0, 0, -1],
   },
 ]
