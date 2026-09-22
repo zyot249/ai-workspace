@@ -16,7 +16,7 @@ const theme = computed(() => props.transparent
       tagline: 'text-neutral-600 dark:text-white/80',
       primary: 'bg-indigo-600 text-white hover:bg-indigo-500',
       secondary: 'border-neutral-400 hover:bg-neutral-900/5 dark:border-white/70 dark:hover:bg-white/10',
-      panel: 'inline-block rounded-2xl px-8 py-10 bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm',
+      panel: 'inline-block self-center rounded-2xl px-8 py-10 bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm',
     }
   : {
       section: 'bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white',
