@@ -6,4 +6,7 @@ export default defineNuxtConfig({
     '@nuxt/content',
   ],
   css: ['~/assets/css/main.css'],
+  nitro: {
+    preset: 'static',
+  },
 })

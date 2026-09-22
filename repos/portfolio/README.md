@@ -19,3 +19,7 @@ npm run generate
 
 Edit markdown in `content/projects/*.md` and `content/about.md`.
 Site-wide config (name, socials, skills) is in `site.config.ts`.
+
+## Deploy
+
+Connect this repo folder to Vercel (root directory: `repos/portfolio`). Build command and output directory are set in `vercel.json`.
