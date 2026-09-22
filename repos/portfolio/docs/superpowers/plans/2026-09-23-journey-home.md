@@ -765,6 +765,9 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
         }
       })
       renderer.dispose()
+      // dispose() frees GPU resources but keeps the context alive. Browsers cap live
+      // contexts (about 16 in Chrome), so release it for home <-> projects navigation.
+      renderer.forceContextLoss()
     },
   }
 }
@@ -885,7 +888,10 @@ let frame = 0
 function hasWebGL(): boolean {
   try {
     const probe = document.createElement('canvas')
-    return Boolean(probe.getContext('webgl2') ?? probe.getContext('webgl'))
+    const gl = probe.getContext('webgl2') ?? probe.getContext('webgl')
+    // Release the probe context right away so it does not count against the browser's limit.
+    gl?.getExtension('WEBGL_lose_context')?.loseContext()
+    return Boolean(gl)
   } catch {
     return false
   }
@@ -1266,7 +1272,23 @@ Resize the window to 390 × 844. Reload. Check:
 
 - [ ] **Step 5: Navigation cleanup**
 
-From the home page, click "View Projects", then use the Nav logo to return home. Repeat twice. Check with `read_console_messages` that no errors appear and the scene still renders after returning.
+From the home page, click "View Projects", then use the Nav logo to return home. Repeat 10 times. Check with `read_console_messages` that no errors appear, that there is no "Too many active WebGL contexts" warning, and that the scene still renders after the last return.
+
+- [ ] **Step 5b: No-WebGL fallback**
+
+On the home page (full tier), force a context loss with `javascript_tool`:
+
+```js
+document.querySelector('canvas').getContext('webgl2').getExtension('WEBGL_lose_context').loseContext()
+```
+
+Check:
+- The canvas is hidden.
+- The intro switches to the CSS gradient with white text and buttons.
+- All four chapters stay readable.
+- `read_console_messages` shows no uncaught errors.
+
+Reload the page afterward to restore the scene.
 
 - [ ] **Step 6: Reduced motion (manual, user-assisted)**
 
