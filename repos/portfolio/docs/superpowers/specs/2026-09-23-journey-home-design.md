@@ -44,7 +44,7 @@ Out of scope:
 pages/index.vue
 ├─ <JourneyCanvas />            fixed, full-viewport, z-0, aria-hidden
 │    └─ props: chapter, progress, isDark
-└─ <main class="relative z-10">
+└─ <div class="relative z-10">    (inside app.vue <main>)
      <JourneyChapter id="intro">     Hero content (name, tagline, buttons)
      <JourneyChapter id="projects">  featured ProjectCards
      <JourneyChapter id="skills">    SkillBadge groups
@@ -60,7 +60,7 @@ pages/index.vue
 | `app/journey/stops.ts` | Data only. One entry per chapter: camera position, camera look-at, blob color, blob distortion strength, blob speed, blob scale, blob offset (wide and narrow). | none |
 | `app/journey/interpolate.ts` | Pure math. `easeInOut(p)`, `lerpStop(a, b, p)`, `damp(current, target, factor)`. | `journey/stops.ts` types |
 | `app/journey/tier.ts` | Pure function `pickTier({ webgl, reducedMotion, coarsePointer, width })` returning `'full' \| 'lite' \| 'reduced' \| 'none'`. | none |
-| `app/journey/progress.ts` | Pure function `computeProgress(sectionRects, viewportHeight)` returning `{ chapter, progress }`. | none |
+| `app/journey/progress.ts` | Pure function `computeProgress(sectionRects, anchor = 0)` returning `{ chapter, progress }`. `anchor` is the reference line's y-position in the viewport. | none |
 | `app/composables/useJourneyProgress.ts` | Reads chapter section rects on scroll and resize (passive listener, rAF-throttled). Calls `computeProgress`. Exposes reactive `chapter` and `progress`. | `journey/progress.ts` |
 | `app/components/JourneyChapter.vue` | Section wrapper: `min-h-screen`, `id`, `data-chapter`, slot. Plain HTML. | none |
 
@@ -71,9 +71,14 @@ or Three.js code, so they can be unit tested.
 
 - `app/pages/index.vue`: restructured into four `JourneyChapter` sections.
   Content and data queries stay the same. Mounts `JourneyCanvas`.
+- `app/app.vue`: `Nav` and `Footer` get `relative z-10` so the fixed canvas
+  (z-0) paints behind them.
 - `app/components/Hero.vue`: gains a `transparent` prop. When true it drops
   the gradient background so the canvas shows through. The gradient remains
-  the default and the `none`-tier fallback.
+  the default and the `none`-tier fallback. In transparent mode, text and
+  buttons switch to theme colors so they stay readable on light and dark
+  backgrounds. `JourneyCanvas` emits `unavailable` when it falls back to the
+  `none` tier; the home page then sets `transparent` to false.
 - `package.json`: add `three`, `@types/three`, `vitest`, and a `test` script.
 - `.gitignore`: add `.superpowers/`.
 
@@ -102,12 +107,16 @@ isDark (useDarkMode) ───────────────────�
 
 ### Progress calculation
 
-For each chapter section, compute how far its top has moved past the
-viewport's vertical center relative to the section height. The active chapter
-is the last section whose top is above the viewport center. `progress` is
-clamped to `[0, 1]`. Before the first section, the result is
-`{ chapter: 0, progress: 0 }`. After the last section, it is
+The reference line (`anchor`) is the top of the viewport (y = 0). The active
+chapter is the last section whose top is at or above the anchor. `progress` is
+`(anchor - top) / height` for that section, clamped to `[0, 1]`; a zero-height
+section counts as `1`. Before the first section reaches the anchor, the result
+is `{ chapter: 0, progress: 0 }`. After the last section, it is
 `{ chapter: 3, progress: 1 }`.
+
+With a top-of-viewport anchor, the blob arrives at stop `i + 1` exactly when
+section `i + 1` fills the screen. A center anchor would put the blob partway
+to the second stop on first load.
 
 ## Scene
 
