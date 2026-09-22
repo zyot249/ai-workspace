@@ -20,3 +20,6 @@ target/
 # env
 .env
 .env.local
+
+# Superpowers scratch (SDD ledgers, brainstorm mockups)
+.superpowers/
