@@ -6,6 +6,14 @@ export default defineNuxtConfig({
     '@nuxt/content',
   ],
   css: ['~/assets/css/main.css'],
+  app: {
+    head: {
+      htmlAttrs: {
+        lang: 'en',
+      },
+      titleTemplate: '%s · Your Name',
+    },
+  },
   nitro: {
     preset: 'static',
   },

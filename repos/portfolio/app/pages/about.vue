@@ -2,6 +2,11 @@
 const { data: about } = await useAsyncData('about-page', () =>
   queryCollection('about').first()
 )
+
+useSeoMeta({
+  title: 'About',
+  description: about.value?.title ?? 'About me',
+})
 </script>
 
 <template>

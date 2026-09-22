@@ -15,6 +15,8 @@ import { siteConfig } from '~~/site.config'
       </NuxtLink>
       <a
         :href="siteConfig.resumeUrl"
+        :target="siteConfig.resumeUrl.startsWith('http') ? '_blank' : undefined"
+        :rel="siteConfig.resumeUrl.startsWith('http') ? 'noopener' : undefined"
         class="rounded-lg border border-white/70 px-6 py-3 font-semibold hover:bg-white/10"
       >
         Resume

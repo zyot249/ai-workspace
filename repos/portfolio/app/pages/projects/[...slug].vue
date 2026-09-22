@@ -8,6 +8,11 @@ const { data: project } = await useAsyncData(`project-${route.path}`, () =>
 if (!project.value) {
   throw createError({ statusCode: 404, statusMessage: 'Project not found' })
 }
+
+useSeoMeta({
+  title: project.value.title,
+  description: project.value.description,
+})
 </script>
 
 <template>
