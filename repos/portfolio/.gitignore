@@ -25,3 +25,6 @@ logs
 
 # Brainstorm companion mockups
 .superpowers
+
+# Vitest cache
+.vitest

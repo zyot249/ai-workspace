@@ -65,7 +65,7 @@ const panel = 'rounded-2xl p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-9
           <div :class="[panel, 'md:mr-auto']">
             <h2 class="text-2xl font-bold mb-6">Skills</h2>
             <div v-for="group in siteConfig.skills" :key="group.category" class="mb-6">
-              <h3 class="text-sm font-semibold uppercase text-neutral-500 mb-2">{{ group.category }}</h3>
+              <h3 class="text-sm font-semibold uppercase text-neutral-600 dark:text-neutral-400 mb-2">{{ group.category }}</h3>
               <div class="flex flex-wrap gap-2">
                 <SkillBadge v-for="item in group.items" :key="item" :label="item" />
               </div>

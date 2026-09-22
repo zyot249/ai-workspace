@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { createJourneyScene, type JourneyScene, type Pointer } from '~/journey/scene'
+import type { JourneyScene, Pointer } from '~/journey/scene'
 import { pickTier } from '~/journey/tier'
 
 const props = defineProps<{
@@ -88,12 +88,20 @@ onMounted(async () => {
     width: window.innerWidth,
   })
 
-  if (tier === 'none' || !canvas.value) {
+  if (tier === 'none') {
+    emit('unavailable')
+    return
+  }
+
+  if (!canvas.value) {
+    console.warn('[journey] canvas ref missing')
     emit('unavailable')
     return
   }
 
   try {
+    const { createJourneyScene } = await import('~/journey/scene')
+    if (unmounted) return
     scene = createJourneyScene(canvas.value, tier)
   } catch (error) {
     console.warn('[journey] 3D scene disabled:', error)
