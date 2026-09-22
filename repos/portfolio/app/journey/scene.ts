@@ -76,7 +76,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   if (particles) scene.add(particles)
 
   const first = stopAt(0)
-  let current: StopState = lerpStop(first, first, 0)
+  let current: StopState = target(0, 0)
   let narrow = false
   let phase = 0
   let lastT = 0
