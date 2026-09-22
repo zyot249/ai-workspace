@@ -147,7 +147,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
       renderer.dispose()
       // dispose() frees GPU resources but keeps the context alive. Browsers cap live
       // contexts (about 16 in Chrome), so release it for home <-> projects navigation.
-      renderer.forceContextLoss()
+      if (!renderer.getContext().isContextLost()) renderer.forceContextLoss()
     },
   }
 }

@@ -17,6 +17,7 @@ const active = ref(false)
 const pointer: Pointer = { x: 0, y: 0 }
 let scene: JourneyScene | null = null
 let frame = 0
+let unmounted = false
 
 function hasWebGL(): boolean {
   try {
@@ -75,7 +76,11 @@ function onContextLost(event: Event) {
   emit('unavailable')
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // .client components render only after mounting; wait a tick so `canvas` is populated.
+  await nextTick()
+  if (unmounted) return
+
   const tier = pickTier({
     webgl: hasWebGL(),
     reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -108,7 +113,10 @@ onMounted(() => {
 
 watch(() => props.isDark, isDark => scene?.setTheme(isDark))
 
-onBeforeUnmount(teardown)
+onBeforeUnmount(() => {
+  unmounted = true
+  teardown()
+})
 </script>
 
 <template>
