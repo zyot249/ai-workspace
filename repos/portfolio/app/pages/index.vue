@@ -2,7 +2,7 @@
 import { siteConfig } from '~~/site.config'
 
 const { data: featured } = await useAsyncData('home-featured-projects', () =>
-  queryCollection('projects').where('featured', '=', true).all()
+  queryCollection('projects').where('featured', '=', true).order('date', 'DESC').all()
 )
 
 const { data: about } = await useAsyncData('home-about-teaser', () =>
