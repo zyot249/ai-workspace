@@ -1,3 +1,5 @@
+import { siteConfig } from './site.config'
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-22',
   devtools: { enabled: true },
@@ -11,7 +13,7 @@ export default defineNuxtConfig({
       htmlAttrs: {
         lang: 'en',
       },
-      titleTemplate: '%s · Your Name',
+      titleTemplate: `%s · ${siteConfig.name}`,
     },
   },
   nitro: {

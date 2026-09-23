@@ -3,8 +3,8 @@ import { CHAPTER_IDS, STOPS, hexToRgb, type StopState } from '../../app/journey/
 import { clamp01, damp, dampState, easeInOut, lerp, lerpStop } from '../../app/journey/interpolate'
 
 function state(stop: StopState): StopState {
-  const { camera, lookAt, color, strength, speed, scale, offsetWide, offsetNarrow } = stop
-  return { camera, lookAt, color, strength, speed, scale, offsetWide, offsetNarrow }
+  const { cameraDistance, cameraHeight, lookAheadDistance, lookHeight, skyColor, fogColor, fogDensity, buildingDensity, buildingHeight, windowLitRatio } = stop
+  return { cameraDistance, cameraHeight, lookAheadDistance, lookHeight, skyColor, fogColor, fogDensity, buildingDensity, buildingHeight, windowLitRatio }
 }
 
 const [intro, projects] = STOPS
@@ -18,14 +18,24 @@ describe('STOPS', () => {
 
   it('uses color components between 0 and 1 and non-negative motion values', () => {
     for (const stop of STOPS) {
-      for (const c of stop.color) {
+      for (const c of [...stop.skyColor, ...stop.fogColor]) {
         expect(c).toBeGreaterThanOrEqual(0)
         expect(c).toBeLessThanOrEqual(1)
       }
-      expect(stop.strength).toBeGreaterThanOrEqual(0)
-      expect(stop.speed).toBeGreaterThanOrEqual(0)
-      expect(stop.scale).toBeGreaterThan(0)
+      expect(stop.fogDensity).toBeGreaterThanOrEqual(0)
+      expect(stop.buildingDensity).toBeGreaterThanOrEqual(0)
+      expect(stop.buildingDensity).toBeLessThanOrEqual(1)
+      expect(stop.buildingHeight).toBeGreaterThan(0)
+      expect(stop.windowLitRatio).toBeGreaterThanOrEqual(0)
+      expect(stop.windowLitRatio).toBeLessThanOrEqual(1)
     }
+  })
+
+  it('progresses from day to night across the chapters', () => {
+    const [introStop, , , aboutStop] = STOPS
+    if (!introStop || !aboutStop) throw new Error('STOPS must have intro and about entries')
+    expect(aboutStop.windowLitRatio).toBeGreaterThan(introStop.windowLitRatio)
+    expect(aboutStop.fogDensity).toBeGreaterThan(introStop.fogDensity)
   })
 })
 
@@ -71,9 +81,9 @@ describe('lerpStop', () => {
 
   it('returns midpoints at 0.5', () => {
     const mid = lerpStop(intro, projects, 0.5)
-    expect(mid.camera[0]).toBeCloseTo((intro.camera[0] + projects.camera[0]) / 2)
-    expect(mid.strength).toBeCloseTo((intro.strength + projects.strength) / 2)
-    expect(mid.color[2]).toBeCloseTo((intro.color[2] + projects.color[2]) / 2)
+    expect(mid.cameraDistance).toBeCloseTo((intro.cameraDistance + projects.cameraDistance) / 2)
+    expect(mid.buildingDensity).toBeCloseTo((intro.buildingDensity + projects.buildingDensity) / 2)
+    expect(mid.fogColor[2]).toBeCloseTo((intro.fogColor[2] + projects.fogColor[2]) / 2)
   })
 
   it('does not include the chapter id', () => {

@@ -20,14 +20,16 @@ function lerp3(a: Vec3, b: Vec3, p: number): Vec3 {
 
 export function lerpStop(a: StopState, b: StopState, p: number): StopState {
   return {
-    camera: lerp3(a.camera, b.camera, p),
-    lookAt: lerp3(a.lookAt, b.lookAt, p),
-    color: lerp3(a.color, b.color, p),
-    strength: lerp(a.strength, b.strength, p),
-    speed: lerp(a.speed, b.speed, p),
-    scale: lerp(a.scale, b.scale, p),
-    offsetWide: lerp3(a.offsetWide, b.offsetWide, p),
-    offsetNarrow: lerp3(a.offsetNarrow, b.offsetNarrow, p),
+    cameraDistance: lerp(a.cameraDistance, b.cameraDistance, p),
+    cameraHeight: lerp(a.cameraHeight, b.cameraHeight, p),
+    lookAheadDistance: lerp(a.lookAheadDistance, b.lookAheadDistance, p),
+    lookHeight: lerp(a.lookHeight, b.lookHeight, p),
+    skyColor: lerp3(a.skyColor, b.skyColor, p),
+    fogColor: lerp3(a.fogColor, b.fogColor, p),
+    fogDensity: lerp(a.fogDensity, b.fogDensity, p),
+    buildingDensity: lerp(a.buildingDensity, b.buildingDensity, p),
+    buildingHeight: lerp(a.buildingHeight, b.buildingHeight, p),
+    windowLitRatio: lerp(a.windowLitRatio, b.windowLitRatio, p),
   }
 }
 

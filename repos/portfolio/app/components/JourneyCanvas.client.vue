@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { JourneyScene, Pointer } from '~/journey/scene'
+import type { ExhibitItem, JourneyScene, Pointer } from '~/journey/scene'
 import { pickTier } from '~/journey/tier'
 
 const props = defineProps<{
   chapter: number
   progress: number
   isDark: boolean
+  projectItems: ExhibitItem[]
 }>()
 
 const emit = defineEmits<{
@@ -102,7 +103,7 @@ onMounted(async () => {
   try {
     const { createJourneyScene } = await import('~/journey/scene')
     if (unmounted) return
-    scene = createJourneyScene(canvas.value, tier)
+    scene = createJourneyScene(canvas.value, tier, props.projectItems)
   } catch (error) {
     console.warn('[journey] 3D scene disabled:', error)
     emit('unavailable')

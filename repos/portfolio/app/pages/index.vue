@@ -27,6 +27,7 @@ const panel = 'rounded-2xl p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-9
       :chapter="chapter"
       :progress="progress"
       :is-dark="isDark"
+      :project-items="featured?.map(p => ({ title: p.title, date: p.date })) ?? []"
       @unavailable="sceneAvailable = false"
     />
 
@@ -78,7 +79,7 @@ const panel = 'rounded-2xl p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-9
         <div class="px-6 py-16 w-full max-w-5xl mx-auto">
           <div :class="[panel, 'md:ml-auto']">
             <h2 class="text-2xl font-bold mb-4">About</h2>
-            <p v-if="about" class="text-neutral-600 dark:text-neutral-400">{{ about.title }}</p>
+            <p v-if="about" class="text-neutral-600 dark:text-neutral-400">{{ about.description }}</p>
             <div class="mt-4 flex flex-wrap gap-6">
               <NuxtLink to="/about" class="text-indigo-600 dark:text-indigo-400 font-medium">
                 Read more about me &rarr;

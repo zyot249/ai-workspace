@@ -5,7 +5,7 @@ const { data: about } = await useAsyncData('about-page', () =>
 
 useSeoMeta({
   title: 'About',
-  description: about.value?.title ?? 'About me',
+  description: about.value?.description ?? 'About Kai Nguyen, backend software engineer.',
 })
 </script>
 

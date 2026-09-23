@@ -5,7 +5,7 @@ const { data: projects } = await useAsyncData('all-projects', () =>
 
 useSeoMeta({
   title: 'Projects',
-  description: 'A list of projects.',
+  description: 'Selected backend engineering work by Kai Nguyen: game microservices, real-time gameplay, event platforms, and online education.',
 })
 </script>
 

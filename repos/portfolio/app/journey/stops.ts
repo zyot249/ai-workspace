@@ -3,14 +3,19 @@ export type Vec3 = readonly [number, number, number]
 export type ChapterId = 'intro' | 'projects' | 'skills' | 'about'
 
 export interface StopState {
-  camera: Vec3
-  lookAt: Vec3
-  color: Vec3
-  strength: number
-  speed: number
-  scale: number
-  offsetWide: Vec3
-  offsetNarrow: Vec3
+  // Camera position/target are expressed as distance along the journey's
+  // path (see `journey/path.ts`) rather than raw x/z, so interpolating
+  // between two stops follows the path's turns instead of a straight line.
+  cameraDistance: number
+  cameraHeight: number
+  lookAheadDistance: number
+  lookHeight: number
+  skyColor: Vec3
+  fogColor: Vec3
+  fogDensity: number
+  buildingDensity: number
+  buildingHeight: number
+  windowLitRatio: number
 }
 
 export interface Stop extends StopState {
@@ -24,50 +29,66 @@ export function hexToRgb(hex: string): Vec3 {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 }
 
-// Wide offsets place the blob opposite the chapter's text panel.
+// The journey passes four places, in order: entrance gate, exhibition hall,
+// market square, home courtyard (see `PLACES`/`WAYPOINTS` in journey/path.ts).
+// The path bends twice (hall -> market turns 90 degrees, market -> courtyard
+// turns back). `cameraDistance` is how far along that path the camera sits
+// for each stop; `lookAheadDistance` is how much further along it looks. A
+// day-to-night arc runs alongside: intro is daylight, about is full night.
 export const STOPS: readonly Stop[] = [
   {
     id: 'intro',
-    camera: [0, 0, 5],
-    lookAt: [0, 0, 0],
-    color: hexToRgb('#6366f1'),
-    strength: 0.15,
-    speed: 1,
-    scale: 1,
-    offsetWide: [0, 0, -1.5],
-    offsetNarrow: [0, 0, -1.5],
+    cameraDistance: 0,
+    cameraHeight: 0.2,
+    lookAheadDistance: 8,
+    lookHeight: 0,
+    skyColor: hexToRgb('#bfdbfe'),
+    fogColor: hexToRgb('#e0e7ff'),
+    fogDensity: 0.045,
+    buildingDensity: 0.35,
+    buildingHeight: 0.6,
+    windowLitRatio: 0.05,
   },
   {
     id: 'projects',
-    camera: [1.2, 0.3, 5],
-    lookAt: [0, 0, 0],
-    color: hexToRgb('#a855f7'),
-    strength: 0.28,
-    speed: 1.4,
-    scale: 1,
-    offsetWide: [-2.2, 0, 0],
-    offsetNarrow: [0, 0.3, -1],
+    // Pulled back to distance 8 (world z 0), so the first hall bays (world z
+    // around -5.75 and -9.25 — see `hallFrameSlots` in scene.ts) are ahead of
+    // the camera and inside the horizontal FOV, not behind or off to the side.
+    cameraDistance: 8,
+    cameraHeight: 0.6,
+    lookAheadDistance: 8,
+    lookHeight: 0.3,
+    skyColor: hexToRgb('#fbbf9f'),
+    fogColor: hexToRgb('#f3a683'),
+    fogDensity: 0.05,
+    buildingDensity: 0.6,
+    buildingHeight: 0.85,
+    windowLitRatio: 0.3,
   },
   {
     id: 'skills',
-    camera: [0, 1.2, 6.5],
-    lookAt: [0, -0.2, 0],
-    color: hexToRgb('#ec4899'),
-    strength: 0.35,
-    speed: 2,
-    scale: 1.1,
-    offsetWide: [2.2, 0, 0],
-    offsetNarrow: [0, 0, -1],
+    cameraDistance: 40,
+    cameraHeight: 0.8,
+    lookAheadDistance: 9,
+    lookHeight: 0.4,
+    skyColor: hexToRgb('#7c6aa8'),
+    fogColor: hexToRgb('#6b5b95'),
+    fogDensity: 0.05,
+    buildingDensity: 0.85,
+    buildingHeight: 1.15,
+    windowLitRatio: 0.65,
   },
   {
     id: 'about',
-    camera: [0, -0.4, 4],
-    lookAt: [0, 0, 0],
-    color: hexToRgb('#818cf8'),
-    strength: 0.1,
-    speed: 0.6,
-    scale: 0.9,
-    offsetWide: [-1.6, -0.2, -1],
-    offsetNarrow: [0, 0, -1],
+    cameraDistance: 72,
+    cameraHeight: 0.3,
+    lookAheadDistance: 9,
+    lookHeight: 0.2,
+    skyColor: hexToRgb('#1e2340'),
+    fogColor: hexToRgb('#141833'),
+    fogDensity: 0.065,
+    buildingDensity: 1,
+    buildingHeight: 1,
+    windowLitRatio: 0.9,
   },
 ]
