@@ -10,7 +10,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <article class="px-6 py-16 max-w-3xl mx-auto prose dark:prose-invert">
+  <article class="px-4 py-10 sm:px-6 sm:py-16 max-w-3xl mx-auto prose dark:prose-invert">
     <ContentRenderer v-if="about" :value="about" />
   </article>
 </template>

@@ -1,24 +1,17 @@
+// The theme lives in the `dark` class on <html>. A head script (nuxt.config.ts)
+// sets it before first paint, and plugins/dark-mode.client.ts copies it into
+// `isDark` after hydration so the first client render matches the server HTML.
 export function useDarkMode() {
   const isDark = useState('isDark', () => false)
 
-  function apply() {
-    if (import.meta.client) {
-      document.documentElement.classList.toggle('dark', isDark.value)
-      localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
-    }
-  }
-
   function toggle() {
     isDark.value = !isDark.value
-    apply()
-  }
-
-  if (import.meta.client) {
-    const stored = localStorage.getItem('theme')
-    isDark.value = stored
-      ? stored === 'dark'
-      : window.matchMedia('(prefers-color-scheme: dark)').matches
-    apply()
+    document.documentElement.classList.toggle('dark', isDark.value)
+    try {
+      localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
+    } catch {
+      // Storage can be blocked (private mode); the toggle still works for this visit.
+    }
   }
 
   return { isDark, toggle }

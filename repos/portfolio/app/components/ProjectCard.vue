@@ -16,7 +16,7 @@ defineProps<{
     class="block rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden hover:shadow-lg transition-shadow"
   >
     <img v-if="project.cover" :src="project.cover" :alt="project.title" loading="lazy" class="w-full h-40 object-cover" />
-    <div class="p-5">
+    <div class="p-4 sm:p-5">
       <h3 class="text-lg font-bold">{{ project.title }}</h3>
       <p class="mt-2 text-sm text-neutral-600 dark:text-neutral-400">{{ project.description }}</p>
       <div class="mt-4 flex flex-wrap gap-2">

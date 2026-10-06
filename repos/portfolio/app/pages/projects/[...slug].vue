@@ -16,7 +16,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <article class="px-6 py-16 max-w-3xl mx-auto">
+  <article class="px-4 py-10 sm:px-6 sm:py-16 max-w-3xl mx-auto">
     <img v-if="project?.cover" :src="project.cover" :alt="project.title" class="w-full h-64 object-cover rounded-xl mb-8" />
     <h1 class="text-3xl font-bold">{{ project?.title }}</h1>
     <p class="mt-2 text-neutral-600 dark:text-neutral-400">{{ project?.description }}</p>

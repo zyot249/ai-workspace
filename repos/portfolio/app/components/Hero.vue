@@ -16,7 +16,7 @@ const theme = computed(() => props.transparent
       tagline: 'text-neutral-600 dark:text-white/80',
       primary: 'bg-indigo-600 text-white hover:bg-indigo-500',
       secondary: 'border-neutral-400 hover:bg-neutral-900/5 dark:border-white/70 dark:hover:bg-white/10',
-      panel: 'inline-block self-center rounded-2xl px-8 py-10 bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm',
+      panel: 'inline-block self-center rounded-2xl px-5 py-8 sm:px-8 sm:py-10 bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm',
     }
   : {
       section: 'bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white',
@@ -28,14 +28,14 @@ const theme = computed(() => props.transparent
 </script>
 
 <template>
-  <section class="px-6 py-24 text-center" :class="theme.section">
+  <section class="px-4 py-16 sm:px-6 sm:py-24 text-center" :class="theme.section">
     <div :class="theme.panel">
-      <h1 class="text-5xl font-extrabold tracking-tight">{{ siteConfig.name }}</h1>
-      <p class="mt-4 text-xl" :class="theme.tagline">{{ siteConfig.tagline }}</p>
-      <div class="mt-8 flex justify-center gap-4">
+      <h1 class="text-4xl sm:text-5xl font-extrabold tracking-tight">{{ siteConfig.name }}</h1>
+      <p class="mt-4 text-lg sm:text-xl" :class="theme.tagline">{{ siteConfig.tagline }}</p>
+      <div class="mt-8 flex flex-wrap justify-center gap-3 sm:gap-4">
         <NuxtLink
           to="/projects"
-          class="rounded-lg font-semibold px-6 py-3"
+          class="rounded-lg font-semibold px-5 sm:px-6 py-3"
           :class="theme.primary"
         >
           View Projects
@@ -44,7 +44,7 @@ const theme = computed(() => props.transparent
           :href="siteConfig.resumeUrl"
           :target="isExternalResume ? '_blank' : undefined"
           :rel="isExternalResume ? 'noopener' : undefined"
-          class="rounded-lg border px-6 py-3 font-semibold"
+          class="rounded-lg border px-5 sm:px-6 py-3 font-semibold"
           :class="theme.secondary"
         >
           Resume

@@ -18,7 +18,7 @@ const { isDark } = useDarkMode()
 const { chapter, progress } = useJourneyProgress()
 const sceneAvailable = ref(true)
 
-const panel = 'rounded-2xl p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm'
+const panel = 'rounded-2xl p-4 sm:p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm'
 </script>
 
 <template>
@@ -37,7 +37,7 @@ const panel = 'rounded-2xl p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-9
       </JourneyChapter>
 
       <JourneyChapter chapter="projects">
-        <div class="px-6 py-16 w-full max-w-5xl mx-auto">
+        <div class="px-4 py-10 sm:px-6 sm:py-16 w-full max-w-5xl mx-auto">
           <div :class="[panel, 'md:ml-auto']">
             <h2 class="text-2xl font-bold mb-6">Featured Projects</h2>
             <div v-if="featured?.length" class="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -62,7 +62,7 @@ const panel = 'rounded-2xl p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-9
       </JourneyChapter>
 
       <JourneyChapter chapter="skills">
-        <div class="px-6 py-16 w-full max-w-5xl mx-auto">
+        <div class="px-4 py-10 sm:px-6 sm:py-16 w-full max-w-5xl mx-auto">
           <div :class="[panel, 'md:mr-auto']">
             <h2 class="text-2xl font-bold mb-6">Skills</h2>
             <div v-for="group in siteConfig.skills" :key="group.category" class="mb-6">
@@ -76,7 +76,7 @@ const panel = 'rounded-2xl p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-neutral-9
       </JourneyChapter>
 
       <JourneyChapter chapter="about">
-        <div class="px-6 py-16 w-full max-w-5xl mx-auto">
+        <div class="px-4 py-10 sm:px-6 sm:py-16 w-full max-w-5xl mx-auto">
           <div :class="[panel, 'md:ml-auto']">
             <h2 class="text-2xl font-bold mb-4">About</h2>
             <p v-if="about" class="text-neutral-600 dark:text-neutral-400">{{ about.description }}</p>

@@ -10,7 +10,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <section class="px-6 py-16 max-w-5xl mx-auto">
+  <section class="px-4 py-10 sm:px-6 sm:py-16 max-w-5xl mx-auto">
     <h1 class="text-3xl font-bold mb-8">Projects</h1>
     <div v-if="projects?.length" class="grid grid-cols-1 sm:grid-cols-2 gap-6">
       <ProjectCard
