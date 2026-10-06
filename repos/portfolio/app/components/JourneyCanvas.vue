@@ -78,10 +78,9 @@ function onContextLost(event: Event) {
 }
 
 onMounted(async () => {
-  // .client components render only after mounting; wait a tick so `canvas` is populated.
-  await nextTick()
-  if (unmounted) return
-
+  // Not a .client component on purpose: the canvas is in the server HTML, so the
+  // ref is set before onMounted runs. A .client component renders a placeholder
+  // first and swaps in the canvas on a later render, which raced this hook on iOS.
   const tier = pickTier({
     webgl: hasWebGL(),
     reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
