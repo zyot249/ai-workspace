@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { BASE_FOV, fovForAspect } from './camera'
 import { damp, dampState, easeInOut, lerpStop } from './interpolate'
 import { clearsPath, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, WAYPOINTS } from './path'
 import { STOPS, type Stop, type StopState } from './stops'
@@ -580,7 +581,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
 
   const lite = tier === 'lite'
   const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 120)
+  const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 120)
 
   // The scene renders its own sky (day-to-night arc), so the canvas is opaque here
   // rather than showing the page background through. Text sits on translucent panels.
@@ -665,6 +666,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     resize(width, height) {
       renderer.setSize(width, height, false)
       camera.aspect = width / height
+      camera.fov = fovForAspect(camera.aspect)
       camera.updateProjectionMatrix()
     },
 
