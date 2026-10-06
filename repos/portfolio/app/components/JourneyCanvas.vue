@@ -19,6 +19,14 @@ const pointer: Pointer = { x: 0, y: 0 }
 let scene: JourneyScene | null = null
 let frame = 0
 let unmounted = false
+let contextLost = false
+let restoreTimer: ReturnType<typeof setTimeout> | undefined
+let restoreBudgetMs = 0
+let restoreWaitStartedAt = 0
+
+// How long to wait, while the page is visible, for the browser to hand back a
+// lost WebGL context before giving up and showing the gradient hero instead.
+const RESTORE_TIMEOUT_MS = 5000
 
 function hasWebGL(): boolean {
   try {
@@ -38,7 +46,7 @@ function render(now: number) {
 }
 
 function start() {
-  if (scene && !frame && !document.hidden) frame = requestAnimationFrame(render)
+  if (scene && !frame && !contextLost && !document.hidden) frame = requestAnimationFrame(render)
 }
 
 function stop() {
@@ -51,8 +59,14 @@ function onResize() {
 }
 
 function onVisibility() {
-  if (document.hidden) stop()
-  else start()
+  if (document.hidden) {
+    stop()
+    pauseRestoreWait()
+  } else if (contextLost) {
+    waitForRestore()
+  } else {
+    start()
+  }
 }
 
 function onPointer(event: PointerEvent) {
@@ -66,15 +80,52 @@ function teardown() {
   window.removeEventListener('pointermove', onPointer)
   document.removeEventListener('visibilitychange', onVisibility)
   canvas.value?.removeEventListener('webglcontextlost', onContextLost)
+  canvas.value?.removeEventListener('webglcontextrestored', onContextRestored)
+  clearTimeout(restoreTimer)
   scene?.dispose()
   scene = null
   active.value = false
 }
 
+// Counts down whatever is left of the restore budget. Paired with
+// pauseRestoreWait so only visible time counts toward the timeout.
+function waitForRestore() {
+  clearTimeout(restoreTimer)
+  restoreWaitStartedAt = performance.now()
+  restoreTimer = setTimeout(() => {
+    teardown()
+    emit('unavailable')
+  }, restoreBudgetMs)
+}
+
+function pauseRestoreWait() {
+  if (restoreTimer === undefined) return
+  clearTimeout(restoreTimer)
+  restoreTimer = undefined
+  restoreBudgetMs = Math.max(0, restoreBudgetMs - (performance.now() - restoreWaitStartedAt))
+}
+
+// Mobile browsers drop the WebGL context when the page is backgrounded or the
+// GPU is under memory pressure, then usually restore it. Pause instead of
+// tearing down; preventDefault tells the browser a restore is wanted.
 function onContextLost(event: Event) {
   event.preventDefault()
-  teardown()
-  emit('unavailable')
+  contextLost = true
+  restoreBudgetMs = RESTORE_TIMEOUT_MS
+  stop()
+  if (!document.hidden) waitForRestore()
+}
+
+// three.js rebuilds its GL state on this event (its listener runs before ours)
+// and re-uploads geometry and textures on the next render, so just resume.
+// Known trade-off: three.js leaves its old managers' dispose listeners on each
+// mesh, so every restore leaks a little bookkeeping. Restores happen a few
+// times per visit at most, so this is cheaper than rebuilding the scene.
+function onContextRestored() {
+  contextLost = false
+  clearTimeout(restoreTimer)
+  restoreTimer = undefined
+  start()
 }
 
 onMounted(async () => {
@@ -116,6 +167,7 @@ onMounted(async () => {
   document.addEventListener('visibilitychange', onVisibility)
   if (tier === 'full') window.addEventListener('pointermove', onPointer, { passive: true })
   canvas.value.addEventListener('webglcontextlost', onContextLost)
+  canvas.value.addEventListener('webglcontextrestored', onContextRestored)
   start()
 })
 
