@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LITE_MAX_WIDTH, pickTier, type TierInput } from '../../app/journey/tier'
+import { LITE_MAX_WIDTH, lowPowerFor, pickTier, type TierInput } from '../../app/journey/tier'
 
 const desktop: TierInput = { webgl: true, reducedMotion: false, coarsePointer: false, width: 1440 }
 
@@ -26,5 +26,15 @@ describe('pickTier', () => {
 
   it('returns full exactly at the width threshold', () => {
     expect(pickTier({ ...desktop, width: LITE_MAX_WIDTH })).toBe('full')
+  })
+})
+
+describe('device cost independent of motion preference', () => {
+  it.each([
+    [767, false, true], [768, false, false], [1440, true, true],
+  ] as const)('width=%i coarse=%s has lowPower=%s', (width, coarsePointer, expected) => {
+    for (const reducedMotion of [false, true]) {
+      expect(lowPowerFor({ webgl: true, reducedMotion, width, coarsePointer })).toBe(expected)
+    }
   })
 })

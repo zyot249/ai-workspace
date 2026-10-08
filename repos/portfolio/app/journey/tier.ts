@@ -9,9 +9,13 @@ export interface TierInput {
 
 export const LITE_MAX_WIDTH = 768
 
+export function lowPowerFor(input: TierInput): boolean {
+  return input.coarsePointer || input.width < LITE_MAX_WIDTH
+}
+
 export function pickTier(input: TierInput): Tier {
   if (!input.webgl) return 'none'
   if (input.reducedMotion) return 'reduced'
-  if (input.coarsePointer || input.width < LITE_MAX_WIDTH) return 'lite'
+  if (lowPowerFor(input)) return 'lite'
   return 'full'
 }
