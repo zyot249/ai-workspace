@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { readFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { createFacadeMaterial } from '../../app/journey/facade-material'
 
@@ -26,4 +27,12 @@ it('separates program cache variants', () => {
   const full = createFacadeMaterial({ color: 0, uniforms, variant: 'full' })
   const lite = createFacadeMaterial({ color: 0, uniforms, variant: 'lite' })
   expect(full.customProgramCacheKey()).not.toBe(lite.customProgramCacheKey())
+})
+
+it('removes obsolete skyline window mesh and opts changing matrices out of culling', () => {
+  const source = readFileSync(new URL('../../app/journey/scene.ts', import.meta.url), 'utf8')
+  for (const oldName of ['createWindows', 'applyWindowState', 'windowsMesh', 'interface WindowLight']) {
+    expect(source).not.toContain(oldName)
+  }
+  expect(source).toContain('mesh.frustumCulled = false')
 })

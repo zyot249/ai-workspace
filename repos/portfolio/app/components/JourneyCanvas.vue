@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ExhibitItem, JourneyScene, Pointer } from '~/journey/scene'
-import { pickTier } from '~/journey/tier'
+import { lowPowerFor, pickTier } from '~/journey/tier'
 
 const props = defineProps<{
   chapter: number
@@ -41,8 +41,16 @@ function hasWebGL(): boolean {
 }
 
 function render(now: number) {
-  scene?.update(props.chapter, props.progress, now / 1000, pointer)
-  frame = requestAnimationFrame(render)
+  frame = 0
+  try {
+    scene?.update(props.chapter, props.progress, now / 1000, pointer)
+  } catch (error) {
+    console.warn('[journey] 3D scene disabled:', error)
+    teardown()
+    emit('unavailable')
+    return
+  }
+  if (scene && !contextLost && !document.hidden) frame = requestAnimationFrame(render)
 }
 
 function start() {
@@ -132,12 +140,13 @@ onMounted(async () => {
   // Not a .client component on purpose: the canvas is in the server HTML, so the
   // ref is set before onMounted runs. A .client component renders a placeholder
   // first and swaps in the canvas on a later render, which raced this hook on iOS.
-  const tier = pickTier({
+  const tierInput = {
     webgl: hasWebGL(),
     reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     coarsePointer: window.matchMedia('(pointer: coarse)').matches,
     width: window.innerWidth,
-  })
+  }
+  const tier = pickTier(tierInput)
 
   if (tier === 'none') {
     emit('unavailable')
@@ -153,9 +162,10 @@ onMounted(async () => {
   try {
     const { createJourneyScene } = await import('~/journey/scene')
     if (unmounted) return
-    scene = createJourneyScene(canvas.value, tier, props.projectItems)
+    scene = createJourneyScene(canvas.value, tier, props.projectItems, { lowPower: lowPowerFor(tierInput) })
   } catch (error) {
     console.warn('[journey] 3D scene disabled:', error)
+    teardown()
     emit('unavailable')
     return
   }

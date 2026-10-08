@@ -1,8 +1,10 @@
 import * as THREE from 'three'
 import { BASE_FOV, fovForAspect } from './camera'
+import { createFacadeMaterial, type FacadeUniforms } from './facade-material'
 import { damp, dampState, easeInOut, lerpStop } from './interpolate'
 import { clearsPath, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, WAYPOINTS } from './path'
 import { STOPS, type Stop, type StopState } from './stops'
+import { createShaderErrorRecorder } from './shader-utils'
 import type { Tier } from './tier'
 
 export interface Pointer {
@@ -15,6 +17,12 @@ export interface JourneyScene {
   resize(width: number, height: number): void
   setTheme(isDark: boolean): void
   dispose(): void
+}
+
+export interface JourneySceneOptions {
+  lowPower?: boolean
+  onRenderer?: (renderer: THREE.WebGLRenderer) => void
+  onSceneReady?: (ready: { scene: THREE.Scene; camera: THREE.PerspectiveCamera }) => void
 }
 
 const DAMPING = 0.08
@@ -129,11 +137,17 @@ function placeBuilding(seedBase: number, sideSpread: number): Building | null {
   return null
 }
 
-function createBuildingLayer(config: (typeof LAYERS)[number], layerIndex: number, lite: boolean): BuildingLayer {
-  const count = lite ? Math.round(config.count * 0.6) : config.count
+function createBuildingLayer(config: (typeof LAYERS)[number], layerIndex: number, lowPower: boolean, facade: FacadeUniforms): BuildingLayer {
+  const count = lowPower ? Math.round(config.count * 0.6) : config.count
   const geometry = new THREE.BoxGeometry(1, 1, 1)
-  const material = new THREE.MeshStandardMaterial({ color: config.color, roughness: 0.9, metalness: 0.05 })
+  geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(
+    Float32Array.from({ length: count }, (_, i) => seeded(layerIndex * 1000 + i)), 1,
+  ))
+  const material = createFacadeMaterial({ color: config.color, uniforms: facade, variant: lowPower ? 'lite' : 'full' })
   const mesh = new THREE.InstancedMesh(geometry, material, count)
+  mesh.name = ['journey-building-near', 'journey-building-mid', 'journey-building-far'][layerIndex]
+    ?? `journey-building-${layerIndex}`
+  mesh.frustumCulled = false
   const buildings: Building[] = []
   const seedBase = layerIndex * 1000
   for (let i = 0; i < count; i++) {
@@ -171,56 +185,6 @@ function applyBuildingState(layer: BuildingLayer, heightScale: number, density: 
     layer.mesh.setMatrixAt(i, matrix)
   }
   layer.mesh.instanceMatrix.needsUpdate = true
-}
-
-interface WindowLight {
-  buildingIndex: number
-  xOffset: number
-  heightFraction: number
-}
-
-// Window lights: small emissive planes scattered up the near layer's building faces.
-// Positions are recomputed every frame from the building's current height so they
-// stay pinned to the facade as `buildingHeight` animates.
-function createWindows(nearLayer: BuildingLayer, lite: boolean): { mesh: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>, windows: WindowLight[] } {
-  const perBuilding = lite ? 3 : 6
-  const windows: WindowLight[] = []
-  for (let b = 0; b < nearLayer.buildings.length; b++) {
-    for (let i = 0; i < perBuilding; i++) {
-      const seed = b * perBuilding + i
-      windows.push({
-        buildingIndex: b,
-        xOffset: (seeded(seed) - 0.5) * 0.7,
-        heightFraction: seeded(seed + 500),
-      })
-    }
-  }
-  const geometry = new THREE.PlaneGeometry(0.12, 0.16)
-  const material = new THREE.MeshBasicMaterial({ color: 0xffe1a8, transparent: true, opacity: 0 })
-  const mesh = new THREE.InstancedMesh(geometry, material, windows.length)
-  return { mesh, windows }
-}
-
-function applyWindowState(nearLayer: BuildingLayer, windows: WindowLight[], mesh: THREE.InstancedMesh, heightScale: number, density: number) {
-  const matrix = new THREE.Matrix4()
-  const activeCount = Math.round(density * nearLayer.buildings.length)
-  for (let w = 0; w < windows.length; w++) {
-    const win = windows[w]
-    if (!win) continue
-    const building = nearLayer.buildings[win.buildingIndex]
-    if (!building || win.buildingIndex >= activeCount || building.width === 0) {
-      matrix.compose(new THREE.Vector3(0, -100, 0), new THREE.Quaternion(), new THREE.Vector3(0, 0, 0))
-      mesh.setMatrixAt(w, matrix)
-      continue
-    }
-    const height = building.baseHeight * heightScale
-    const wx = building.x + win.xOffset * building.width
-    const wy = height / 2 - 1 - height / 2 + win.heightFraction * height
-    const wz = building.z + building.width / 2 + 0.01
-    matrix.compose(new THREE.Vector3(wx, wy, wz), new THREE.Quaternion(), new THREE.Vector3(1, 1, 1))
-    mesh.setMatrixAt(w, matrix)
-  }
-  mesh.instanceMatrix.needsUpdate = true
 }
 
 function createStars(): THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> {
@@ -575,13 +539,42 @@ function placeOnPath(group: THREE.Group, point: { x: number, z: number }, dirX: 
   return group
 }
 
-export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier, 'none'>, projectItems: readonly ExhibitItem[]): JourneyScene {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: tier !== 'lite' })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, tier === 'lite' ? 1.5 : 2))
-
-  const lite = tier === 'lite'
+export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier, 'none'>, projectItems: readonly ExhibitItem[], options: JourneySceneOptions = {}): JourneyScene {
+  const lowPower = options.lowPower ?? (tier === 'lite')
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !lowPower })
+  const recorder = createShaderErrorRecorder(renderer)
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 120)
+  const facade: FacadeUniforms = {
+    uLit: { value: 0 }, uSkyTint: { value: new THREE.Color() },
+  }
+
+  let disposed = false
+  function dispose() {
+    if (disposed) return
+    disposed = true
+    const geometries = new Set<THREE.BufferGeometry>()
+    const materials = new Set<THREE.Material>()
+    const textures = new Set<THREE.Texture>()
+    scene.traverse(object => {
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.Points)) return
+      geometries.add(object.geometry)
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        materials.add(material)
+        for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value)
+      }
+    })
+    for (const texture of textures) texture.dispose()
+    for (const geometry of geometries) geometry.dispose()
+    for (const material of materials) material.dispose()
+    recorder.dispose()
+    renderer.dispose()
+    if (!renderer.getContext().isContextLost()) renderer.forceContextLoss()
+  }
+
+  try {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowPower ? 1.5 : 2))
+  options.onRenderer?.(renderer)
 
   // The scene renders its own sky (day-to-night arc), so the canvas is opaque here
   // rather than showing the page background through. Text sits on translucent panels.
@@ -590,13 +583,12 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   const fog = new THREE.FogExp2(0xbfdbfe, 0.02)
   scene.fog = fog
 
-  const layers = LAYERS.map((config, i) => createBuildingLayer(config, i, lite))
-  for (const layer of layers) scene.add(layer.mesh)
-  const [nearLayer] = layers
-  if (!nearLayer) throw new Error('LAYERS is empty')
-  const near: BuildingLayer = nearLayer
-  const { mesh: windowsMesh, windows } = createWindows(near, lite)
-  scene.add(windowsMesh)
+  const layers: BuildingLayer[] = []
+  for (const [i, config] of LAYERS.entries()) {
+    const layer = createBuildingLayer(config, i, lowPower, facade)
+    layers.push(layer)
+    scene.add(layer.mesh)
+  }
 
   scene.add(createGround())
   scene.add(createRoad())
@@ -607,7 +599,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   scene.add(placeOnPath(createMarket(), PLACES.market, seg2.dirX, seg2.dirZ))
   scene.add(placeOnPath(createCourtyard(), PLACES.courtyard, seg3.dirX, seg3.dirZ))
 
-  const stars = tier === 'full' ? createStars() : null
+  const stars = !lowPower ? createStars() : null
   if (stars) scene.add(stars)
 
   const hemi = new THREE.HemisphereLight(0xbfdbfe, 0x1a1a1f, 0.9)
@@ -631,9 +623,9 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     fog.color.setRGB(state.fogColor[0], state.fogColor[1], state.fogColor[2], THREE.SRGBColorSpace)
     fog.density = state.fogDensity
     hemi.color.setRGB(state.skyColor[0], state.skyColor[1], state.skyColor[2], THREE.SRGBColorSpace)
+    facade.uLit.value = state.windowLitRatio
+    facade.uSkyTint.value.setRGB(...state.skyColor, THREE.SRGBColorSpace)
     for (const layer of layers) applyBuildingState(layer, state.buildingHeight, state.buildingDensity)
-    applyWindowState(near, windows, windowsMesh, state.buildingHeight, state.buildingDensity)
-    windowsMesh.material.opacity = state.windowLitRatio
     if (stars) stars.material.opacity = state.windowLitRatio
 
     // Camera position/lookAt are driven by distance along the bent path, not
@@ -650,6 +642,29 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     camera.lookAt(lookAt)
   }
 
+  function resize(width: number, height: number) {
+    const safeWidth = Math.max(1, width)
+    const safeHeight = Math.max(1, height)
+    renderer.setSize(safeWidth, safeHeight, false)
+    camera.aspect = safeWidth / safeHeight
+    camera.fov = fovForAspect(camera.aspect)
+    camera.updateProjectionMatrix()
+  }
+
+  function renderFrame() {
+    renderer.render(scene, camera)
+    recorder.assertClean()
+  }
+
+  apply(current)
+  resize(canvas.clientWidth || canvas.width || window.innerWidth,
+    canvas.clientHeight || canvas.height || window.innerHeight)
+  renderFrame()
+  const gl = renderer.getContext()
+  const startupError = gl.getError()
+  if (startupError !== gl.NO_ERROR) throw new Error(`[journey] WebGL warmup error: ${startupError}`)
+  options.onSceneReady?.({ scene, camera })
+
   return {
     update(chapter, progress, _t, pointer) {
       current = tier === 'reduced'
@@ -660,33 +675,20 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
         tilt.y = damp(tilt.y, pointer.y * 0.2, DAMPING)
       }
       apply(current)
-      renderer.render(scene, camera)
+      renderFrame()
     },
 
-    resize(width, height) {
-      renderer.setSize(width, height, false)
-      camera.aspect = width / height
-      camera.fov = fovForAspect(camera.aspect)
-      camera.updateProjectionMatrix()
-    },
+    resize,
 
     setTheme(isDark) {
       sun.intensity = isDark ? 0.5 : 0.9
       hemi.intensity = isDark ? 0.6 : 0.9
     },
 
-    dispose() {
-      scene.traverse((object) => {
-        if (object instanceof THREE.Mesh || object instanceof THREE.Points || object instanceof THREE.InstancedMesh) {
-          object.geometry.dispose()
-          const materials = Array.isArray(object.material) ? object.material : [object.material]
-          for (const m of materials) m.dispose()
-        }
-      })
-      renderer.dispose()
-      // dispose() frees GPU resources but keeps the context alive. Browsers cap live
-      // contexts (about 16 in Chrome), so release it for home <-> projects navigation.
-      if (!renderer.getContext().isContextLost()) renderer.forceContextLoss()
-    },
+    dispose,
+  }
+  } catch (error) {
+    dispose()
+    throw error
   }
 }
