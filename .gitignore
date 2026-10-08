@@ -23,3 +23,6 @@ target/
 
 # Superpowers scratch (SDD ledgers, brainstorm mockups)
 .superpowers/
+
+# Local research notes (not published)
+research_notes/
