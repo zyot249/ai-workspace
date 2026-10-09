@@ -103,6 +103,7 @@ const cityGpu = {
         && object.material instanceof THREE.Material && object.material.name.startsWith('journey-facade-'))
       .map(mesh => ({
         count: mesh.count,
+        buildings: mesh.userData.buildingCount as number,
         seedCount: mesh.geometry.getAttribute('aSeed').count,
         frustumCulled: mesh.frustumCulled,
         variant: (mesh.material as THREE.Material).name,

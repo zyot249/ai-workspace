@@ -1,9 +1,10 @@
 import * as THREE from 'three'
 import { BASE_FOV, fovForAspect } from './camera'
-import { createFacadeMaterial, type FacadeUniforms } from './facade-material'
-import { CORNER_BLOCKS, clearsFootprints } from './footprints'
+import { applyBuildingState, type BuildingLayer, createBuildingLayer, LAYERS, layerMeshes } from './buildings'
+import type { FacadeUniforms } from './facade-material'
+import { CORNER_BLOCKS } from './footprints'
 import { damp, dampState, lerpLook } from './interpolate'
-import { clearsPath, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH, WAYPOINTS } from './path'
+import { headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH, WAYPOINTS } from './path'
 import { seeded } from './random'
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
@@ -34,7 +35,6 @@ export interface JourneySceneOptions {
 
 const DAMPING = 0.08
 const STAR_COUNT = 800
-const ROAD_CLEARANCE = ROAD_HALF_WIDTH + 0.3
 const BUILDING_CLEARANCE = 3.3
 
 const [seg1Maybe, seg2Maybe, seg3Maybe] = PATH_SEGMENTS
@@ -42,102 +42,6 @@ if (!seg1Maybe || !seg2Maybe || !seg3Maybe) throw new Error('expected 3 path seg
 const seg1: PathSegment = seg1Maybe
 const seg2: PathSegment = seg2Maybe
 const seg3: PathSegment = seg3Maybe
-
-// Generic background skyline, spread across the whole path as fill between the
-// set-pieces rather than clustered at one depth. Each band has its own base
-// clearance from the path so near/mid/far read as layered, not piled at the curb.
-// `buildingDensity` scales how many of each band's baked instances are visible.
-const LAYERS = [
-  { count: 24, sideSpread: 9, baseHeight: 1.4, color: 0x1f2438 },
-  { count: 32, sideSpread: 13, baseHeight: 2.2, color: 0x2a2f4a },
-  { count: 40, sideSpread: 18, baseHeight: 3.2, color: 0x353b5c },
-] as const
-
-interface Building {
-  x: number
-  z: number
-  width: number
-  baseHeight: number
-}
-
-interface BuildingLayer {
-  mesh: THREE.InstancedMesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>
-  buildings: Building[]
-}
-
-const PLACEMENT_ATTEMPTS = 6
-
-// Picks a point off to one side of the path, at least clear of every road
-// segment and every set-piece's footprint. Tries a handful of seeded
-// candidates and gives up (returns null, hidden off-scene) if none clear.
-function placeBuilding(seedBase: number, sideSpread: number): Building | null {
-  const width = 0.5 + seeded(seedBase + 100) * 0.6
-  const minClear = ROAD_CLEARANCE + width / 2
-  for (let attempt = 0; attempt < PLACEMENT_ATTEMPTS; attempt++) {
-    const s = seedBase + attempt * 977
-    const distance = seeded(s + 400) * PATH_TOTAL_LENGTH
-    const point = pathPointAt(distance)
-    const half = Math.max(sideSpread / 2, minClear + 1)
-    const side = seeded(s) < 0.5 ? -1 : 1
-    const offset = side * (minClear + seeded(s + 1000) * (half - minClear))
-    const x = point.x + point.rightX * offset
-    const z = point.z + point.rightZ * offset
-    if (clearsPath(x, z, minClear) && clearsFootprints(x, z)) {
-      return { x, z, width, baseHeight: 0 }
-    }
-  }
-  return null
-}
-
-function createBuildingLayer(config: (typeof LAYERS)[number], layerIndex: number, lowPower: boolean, facade: FacadeUniforms): BuildingLayer {
-  const count = lowPower ? Math.round(config.count * 0.6) : config.count
-  const geometry = new THREE.BoxGeometry(1, 1, 1)
-  geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(
-    Float32Array.from({ length: count }, (_, i) => seeded(layerIndex * 1000 + i)), 1,
-  ))
-  const material = createFacadeMaterial({ color: config.color, uniforms: facade, variant: lowPower ? 'lite' : 'full' })
-  const mesh = new THREE.InstancedMesh(geometry, material, count)
-  mesh.name = ['journey-building-near', 'journey-building-mid', 'journey-building-far'][layerIndex]
-    ?? `journey-building-${layerIndex}`
-  mesh.frustumCulled = false
-  const buildings: Building[] = []
-  const seedBase = layerIndex * 1000
-  for (let i = 0; i < count; i++) {
-    const building = placeBuilding(seedBase + i, config.sideSpread)
-    buildings.push(
-      building
-        ? { ...building, baseHeight: config.baseHeight * (0.5 + seeded(seedBase + i + 200)) }
-        : { x: 0, z: 0, width: 0, baseHeight: 0 },
-    )
-  }
-  return { mesh, buildings }
-}
-
-// Scales each instance's height by `heightScale` and hides instances beyond
-// `density * count`, so a rising density reads as the skyline filling in
-// rather than buildings fading to transparent. A building with `width === 0`
-// (no clear spot found for it) always stays hidden.
-function applyBuildingState(layer: BuildingLayer, heightScale: number, density: number) {
-  const matrix = new THREE.Matrix4()
-  const activeCount = Math.round(density * layer.buildings.length)
-  for (let i = 0; i < layer.buildings.length; i++) {
-    const building = layer.buildings[i]
-    if (!building) continue
-    if (i >= activeCount || building.width === 0) {
-      matrix.compose(new THREE.Vector3(building.x, -100, building.z), new THREE.Quaternion(), new THREE.Vector3(0, 0, 0))
-      layer.mesh.setMatrixAt(i, matrix)
-      continue
-    }
-    const height = building.baseHeight * heightScale
-    matrix.compose(
-      new THREE.Vector3(building.x, height / 2 - 1, building.z),
-      new THREE.Quaternion(),
-      new THREE.Vector3(building.width, height, building.width),
-    )
-    layer.mesh.setMatrixAt(i, matrix)
-  }
-  layer.mesh.instanceMatrix.needsUpdate = true
-}
 
 function createStars(): THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> {
   const positions = new Float32Array(STAR_COUNT * 3)
@@ -545,10 +449,10 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   scene.fog = fog
 
   const layers: BuildingLayer[] = []
-  for (const [i, config] of LAYERS.entries()) {
-    const layer = createBuildingLayer(config, i, lowPower, facade)
+  for (const [i] of LAYERS.entries()) {
+    const layer = createBuildingLayer(i, { lowPower, facade })
     layers.push(layer)
-    scene.add(layer.mesh)
+    scene.add(...layerMeshes(layer))
   }
 
   scene.add(createGround())
@@ -614,7 +518,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
       Math.max(2, Math.sin(elevation) * 10), -Math.cos(azimuth) * Math.cos(elevation) * 10)
     facade.uLit.value = state.windowLitRatio
     facade.uSkyTint.value.setRGB(...state.skyColor, THREE.SRGBColorSpace)
-    for (const layer of layers) applyBuildingState(layer, state.buildingHeight, state.buildingDensity)
+    for (const layer of layers) applyBuildingState(layer, state.buildingHeight, state.buildingDensity, lastTime, tier === 'reduced')
     if (stars) stars.material.opacity = state.starOpacity
 
     // Camera position/lookAt are driven by distance along the bent path, not

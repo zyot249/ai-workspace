@@ -32,11 +32,12 @@ it('separates program cache variants', () => {
 })
 
 it('removes obsolete skyline window mesh and opts changing matrices out of culling', () => {
-  const source = readFileSync(new URL('../../app/journey/scene.ts', import.meta.url), 'utf8')
+  const scene = readFileSync(new URL('../../app/journey/scene.ts', import.meta.url), 'utf8')
   for (const oldName of ['createWindows', 'applyWindowState', 'windowsMesh', 'interface WindowLight']) {
-    expect(source).not.toContain(oldName)
+    expect(scene).not.toContain(oldName)
   }
-  expect(source).toContain('mesh.frustumCulled = false')
+  const buildings = readFileSync(new URL('../../app/journey/buildings.ts', import.meta.url), 'utf8')
+  expect(buildings).toContain('mesh.frustumCulled = false')
 })
 
 function patched(variant: 'full' | 'lite', debug = 0) {
@@ -65,4 +66,12 @@ it('registers window uniforms and emits the reduced-cost variant separately', ()
     expect(variant.shader.fragmentShader).not.toContain('uSunVisibility')
     variant.m.dispose()
   }
+})
+
+it.each(['full', 'lite'] as const)('%s: gates window drawing on the aWindowed attribute', variant => {
+  const { shader } = patched(variant)
+  expect(shader.vertexShader).toContain('attribute float aWindowed;')
+  expect(shader.vertexShader).toContain('vWindowed = aWindowed;')
+  expect(shader.fragmentShader).toContain('varying float vWindowed;')
+  expect(shader.fragmentShader).toContain('abs(vFaceNormal.y) < 0.5 && vWindowed > 0.5')
 })

@@ -19,9 +19,11 @@ const saltedHash = (salt: readonly [number, number, number]) =>
   `windowHash13(vec3(facadeCell + vec2(${glsl(salt[0])}, ${glsl(salt[1])}), vSeed + ${glsl(salt[2])}))`
 const vertexDeclarations = `
 attribute float aSeed;
+attribute float aWindowed;
 varying vec3 vFacadePos;
 varying vec3 vFaceNormal;
 varying float vSeed;
+varying float vWindowed;
 varying float vFacadeDepth;
 `
 const fragmentDeclarations = `
@@ -34,6 +36,7 @@ uniform vec3 uSkyTint;
 varying vec3 vFacadePos;
 varying vec3 vFaceNormal;
 varying float vSeed;
+varying float vWindowed;
 varying float vFacadeDepth;
 float windowHash11(float p) {
   p = fract(p * ${glsl(WINDOW.hashMultiplier)});
@@ -99,7 +102,7 @@ float facadeBuildingHash = windowHash11(vSeed);
 float facadeTintHash = 0.0;
 float facadeLit = 0.0;
 vec3 facadeWindowEmission = vec3(0.0);
-if (abs(vFaceNormal.y) < 0.5) {
+if (abs(vFaceNormal.y) < 0.5 && vWindowed > 0.5) {
   vec2 uv = abs(vFaceNormal.x) > 0.5 ? vec2(vFacadePos.z, vFacadePos.y) : vec2(vFacadePos.x, vFacadePos.y);
   const vec2 CELL = vec2(${FACADE_CELL[0]}, ${FACADE_CELL[1]});
   facadeCell = floor(uv / CELL);
@@ -154,6 +157,7 @@ facadeScale = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz),
 vFacadePos = (position + vec3(0.0, 0.5, 0.0)) * facadeScale;
 vFaceNormal = normal;
 vSeed = aSeed;
+vWindowed = aWindowed;
 `)
     shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <project_vertex>', '#include <project_vertex>\nvFacadeDepth = -mvPosition.z;')
     shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <common>', '#include <common>\n' + fragmentDeclarations)
