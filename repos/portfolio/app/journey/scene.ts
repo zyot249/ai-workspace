@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { BASE_FOV, fovForAspect } from './camera'
 import { applyBuildingState, type BuildingLayer, createBuildingLayer, LAYERS, layerMeshes } from './buildings'
-import type { FacadeUniforms } from './facade-material'
+import { createFacadeUniforms } from './facade-material'
 import { CORNER_BLOCKS } from './footprints'
 import { damp, dampState, lerpLook } from './interpolate'
 import { headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH, WAYPOINTS } from './path'
@@ -398,10 +398,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   const recorder = createShaderErrorRecorder(renderer)
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, CAMERA_FAR)
-  const facade: FacadeUniforms = {
-    uLit: { value: 0 }, uSkyTint: { value: new THREE.Color() },
-    uTime: { value: 0 }, uFlicker: { value: tier === 'reduced' ? 0 : 1 }, uEmissiveScale: { value: 1 },
-  }
+  const facade = createFacadeUniforms(tier === 'reduced' ? 0 : 1)
 
   let post: PostPipeline | null = null
   let disposed = false
