@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Color, ShaderChunk, SRGBColorSpace } from 'three'
 import { STOPS, hexToRgb } from '../../app/journey/stops'
-import { bloomEnabled, neutralToneMap, POST_EMISSIVES, skyForDirectPipeline } from '../../app/journey/post'
+import { bloomEnabled, neutralToneMap, POST_EMISSIVES, probePostSupport, skyForDirectPipeline } from '../../app/journey/post'
 
 describe('post color contract', () => {
   it('disables bloom strictly below the boundary', () => {
@@ -47,5 +47,24 @@ describe('post color contract', () => {
       const c = new Color(source.hex).multiplyScalar(source.gain)
       expect(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b).toBeGreaterThanOrEqual(2)
     }
+  })
+
+  it('chooses only supported RGBA16F sample counts <= 4 and accepts none', () => {
+    function renderer(counts: number[]) {
+      return {
+        extensions: { has: () => true },
+        getContext: () => ({ RENDERBUFFER: 0x8d41, RGBA16F: 0x881a, SAMPLES: 0x80a9,
+          getInternalformatParameter: () => new Int32Array(counts) }),
+      } as unknown as import('three').WebGLRenderer
+    }
+    expect(probePostSupport(renderer([8, 4, 2]))).toEqual({ samples: 4 })
+    expect(probePostSupport(renderer([8, 2]))).toEqual({ samples: 2 })
+    expect(probePostSupport(renderer([]))).toEqual({ samples: 0 })
+  })
+  it('rejects missing half-float extension and a failed sample query', () => {
+    expect(probePostSupport({ extensions: { has: () => false } } as unknown as import('three').WebGLRenderer)).toBeNull()
+    expect(probePostSupport({ extensions: { has: () => true }, getContext: () => ({
+      getInternalformatParameter: () => { throw new Error('query unavailable') },
+    }) } as unknown as import('three').WebGLRenderer)).toBeNull()
   })
 })

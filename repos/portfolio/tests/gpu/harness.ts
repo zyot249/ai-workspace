@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { createJourneyScene, type JourneyScene, type JourneySceneOptions } from '../../app/journey/scene'
 import { probeFacade } from './facade-probe'
 import { breakRestoredComponent, componentResourceCounts, componentStatus, mountComponent, unmountComponent } from './component-probe'
+import './post-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 import { measureRenderCost } from './render-cost'
 
