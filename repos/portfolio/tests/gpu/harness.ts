@@ -6,6 +6,7 @@ import { breakRestoredComponent, componentResourceCounts, componentStatus, compo
 import './post-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 import { measureRenderCost } from './render-cost'
+import { skyProbe } from './sky-probe'
 import { probeWindows } from './windows-probe'
 
 let journey: JourneyScene | null = null
@@ -29,6 +30,7 @@ function currentDiagnostics() {
 }
 
 const cityGpu = {
+  sky: skyProbe,
   probeFacade,
   probeWindows,
   mountComponent,

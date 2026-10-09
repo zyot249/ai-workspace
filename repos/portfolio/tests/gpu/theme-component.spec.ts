@@ -14,7 +14,8 @@ for (const dark of [false, true]) {
     await expect.poll(() => page.evaluate(() => window.cityGpu.componentStatus().visible)).toBe(true)
     const first = await page.evaluate(() => window.cityGpu.componentThemeStatus())
     expect(first.calls).toEqual([{ isDark: dark, animate: false }])
-    const expected = LOOKS[dark ? 'dark' : 'light'].intro.skyColor
+    // The background is the dome's fallback: the horizon (fog) colour.
+    const expected = LOOKS[dark ? 'dark' : 'light'].intro.fogColor
     expected.forEach((v, i) => expect(first.sky![i]).toBeCloseTo(v, 4))
     await page.evaluate(dark => window.cityGpu.setComponentDark(dark), dark)
     // Allow real RAF updates after the plugin-equivalent prop synchronization.
@@ -39,6 +40,6 @@ test('a later actual toggle animates at the current chapter', async ({ page }) =
   expect(distance(justToggled.sky!, before.sky!)).toBeLessThan(.1)
   await expect.poll(async () => {
     const status = await page.evaluate(() => window.cityGpu.componentThemeStatus())
-    return distance(status.sky!, LOOKS.dark.intro.skyColor)
+    return distance(status.sky!, LOOKS.dark.intro.fogColor)
   }, { timeout: 30000 }).toBeLessThan(.01)
 })

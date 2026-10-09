@@ -65,3 +65,12 @@ test('successful restore and repeated unmount dispose resources once', async ({ 
   }
   await page.evaluate(() => { window.cityGpu.dispose(); window.cityGpu.dispose() })
 })
+
+test('sky shader failure during creation emits unavailable', async ({ page }) => {
+  await page.goto('/tests/gpu/harness.html')
+  await page.waitForFunction(() => Boolean(window.cityGpu))
+  await page.evaluate(() => window.cityGpu.mountComponent({ failure: 'sky-creation' }))
+  await expect.poll(() => page.evaluate(() => window.cityGpu.componentStatus().unavailable)).toBe(1)
+  expect(await page.evaluate(() => window.cityGpu.componentStatus().visible)).toBe(false)
+  await page.evaluate(() => window.cityGpu.unmountComponent())
+})

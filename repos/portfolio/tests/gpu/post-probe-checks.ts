@@ -1,4 +1,6 @@
 import * as THREE from 'three'
+import { SKY_NAME } from '../../app/journey/sky'
+import { RINGS } from '../../app/journey/skyline-far'
 import { createTestRenderer } from './gpu-utils'
 import { createPostPipeline, probePostSupport, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from '../../app/journey/post'
 import { CHAPTER_IDS, LOOKS, type Vec3 } from '../../app/journey/stops'
@@ -146,11 +148,14 @@ export async function restoreSynthetic(): Promise<RestoreResult> {
 
 interface ActualContext { scene: THREE.Scene; camera: THREE.PerspectiveCamera; renderer: THREE.WebGLRenderer }
 
+// The dome and far rings are backdrop. The parity and window checks sample real
+// surfaces, and a ray that hits only backdrop counts as sky.
+const BACKDROP = new Set([SKY_NAME, RINGS.a.name, RINGS.b.name])
 function opaqueMeshes(scene: THREE.Scene): THREE.Mesh[] {
   const meshes: THREE.Mesh[] = []
   scene.traverse(object => {
     const mesh = object as THREE.Mesh
-    if (!mesh.isMesh) return
+    if (!mesh.isMesh || BACKDROP.has(mesh.name)) return
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
     if (materials.some(m => m.transparent)) return
     if ((mesh as THREE.InstancedMesh).isInstancedMesh) (mesh as THREE.InstancedMesh).computeBoundingSphere()

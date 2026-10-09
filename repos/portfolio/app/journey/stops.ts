@@ -82,8 +82,9 @@ export const LOOKS: Readonly<Record<Theme, Readonly<Record<ChapterId, LookState>
       cloudLitColor: hexToRgb('#5d5a8a'), cloudShadeColor: hexToRgb('#1f1e3a'), hemiIntensity: .55, starOpacity: .7,
       windowLitRatio: .75, exposure: 1.15, bloomStrength: .35 },
     about: { skyZenith: hexToRgb('#0a0d22'), skyColor: hexToRgb('#1e2340'), fogColor: hexToRgb('#141833'), fogDensity: .065,
-      sunElevation: -22, sunAzimuth: 10, sunColor: hexToRgb('#7a8cc4'), sunGlow: 0, cloudCover: .25,
-      cloudLitColor: hexToRgb('#3a4266'), cloudShadeColor: hexToRgb('#12152a'), hemiIntensity: .5, starOpacity: 1,
+      // Night clouds stay within 8/255 of the clear sky (spec 09 test 16); retuned 2026-10-09.
+      sunElevation: -22, sunAzimuth: 10, sunColor: hexToRgb('#7a8cc4'), sunGlow: 0, cloudCover: .1,
+      cloudLitColor: hexToRgb('#2c3353'), cloudShadeColor: hexToRgb('#181c35'), hemiIntensity: .5, starOpacity: 1,
       windowLitRatio: .9, exposure: 1.25, bloomStrength: .42 },
   },
 }

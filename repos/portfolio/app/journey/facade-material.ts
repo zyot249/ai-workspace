@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { FACADE_CELL } from './facade-grid'
-import { replaceOrThrow } from './shader-utils'
+import { glslFloat, glslVec3, replaceOrThrow } from './shader-utils'
 import { WINDOW, WINDOW_PALETTE } from './window-look'
 
 export interface FacadeUniforms {
@@ -12,8 +12,8 @@ export interface FacadeUniforms {
 }
 export type FacadeVariant = 'full' | 'lite'
 
-const glsl = (n: number) => (Number.isInteger(n) ? `${n}.0` : n.toPrecision(12))
-const glsl3 = (rgb: readonly number[]) => `vec3(${rgb.map(glsl).join(', ')})`
+const glsl = glslFloat
+const glsl3 = glslVec3
 const [warm, neutral, cool] = WINDOW_PALETTE
 const saltedHash = (salt: readonly [number, number, number]) =>
   `windowHash13(vec3(facadeCell + vec2(${glsl(salt[0])}, ${glsl(salt[1])}), vSeed + ${glsl(salt[2])}))`

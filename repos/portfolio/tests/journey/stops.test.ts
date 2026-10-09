@@ -41,3 +41,9 @@ it('enforces both palettes and light-only constraints', () => {
   expect(CHAPTER_IDS.map(id => LOOKS.dark[id].bloomStrength)).toEqual([.12, .25, .35, .42])
   expect(hexToRgb('#ff8000')).toEqual([1, 128 / 255, 0])
 })
+
+it('keeps night clouds faint (spec 09 test 16, retuned 2026-10-09)', () => {
+  expect(LOOKS.dark.about.cloudCover).toBe(.1)
+  expect(LOOKS.dark.about.cloudLitColor).toEqual(hexToRgb('#2c3353'))
+  expect(LOOKS.dark.about.cloudShadeColor).toEqual(hexToRgb('#181c35'))
+})
