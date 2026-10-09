@@ -5,6 +5,7 @@ import { damp, dampState, lerpLook } from './interpolate'
 import { clearsPath, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, WAYPOINTS } from './path'
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
+import { seeded } from './random'
 import { createShaderErrorRecorder } from './shader-utils'
 import { targetFor } from './target'
 import { createThemeController } from './theme-blend'
@@ -78,7 +79,7 @@ function clearsFootprints(x: number, z: number): boolean {
 // Two tall solid blocks, one tucked into each turn's inside corner, so the
 // wide-open sightline from the entrance can't see straight through both
 // turns to the market and courtyard. Always present, not tied to density.
-const CORNER_BLOCKS = [
+export const CORNER_BLOCKS = [
   { x: -4.2, z: -22, width: 3, depth: 3, height: 5 },
   { x: -22, z: -30, width: 3, depth: 3, height: 5 },
 ] as const
@@ -87,19 +88,15 @@ const CORNER_BLOCKS = [
 // set-pieces rather than clustered at one depth. Each band has its own base
 // clearance from the path so near/mid/far read as layered, not piled at the curb.
 // `buildingDensity` scales how many of each band's baked instances are visible.
-const LAYERS = [
+export const LAYERS = [
   { count: 24, sideSpread: 9, baseHeight: 1.4, color: 0x1f2438 },
   { count: 32, sideSpread: 13, baseHeight: 2.2, color: 0x2a2f4a },
   { count: 40, sideSpread: 18, baseHeight: 3.2, color: 0x353b5c },
 ] as const
 
-// Deterministic pseudo-random in [0, 1), seeded by index so layout is stable across renders.
-function seeded(index: number): number {
-  const x = Math.sin(index * 12.9898) * 43758.5453
-  return x - Math.floor(x)
-}
 
-interface Building {
+
+export interface Building {
   x: number
   z: number
   width: number
@@ -146,17 +143,19 @@ function createBuildingLayer(config: (typeof LAYERS)[number], layerIndex: number
   mesh.name = ['journey-building-near', 'journey-building-mid', 'journey-building-far'][layerIndex]
     ?? `journey-building-${layerIndex}`
   mesh.frustumCulled = false
-  const buildings: Building[] = []
+  return { mesh, buildings: layerPlacements(config, layerIndex, count) }
+}
+
+// Seeded placements for one layer. Instance i always gets the same seed, so a
+// lowPower layer's placements are a prefix of the full layer's.
+export function layerPlacements(config: (typeof LAYERS)[number], layerIndex: number, count: number): Building[] {
   const seedBase = layerIndex * 1000
-  for (let i = 0; i < count; i++) {
+  return Array.from({ length: count }, (_, i) => {
     const building = placeBuilding(seedBase + i, config.sideSpread)
-    buildings.push(
-      building
-        ? { ...building, baseHeight: config.baseHeight * (0.5 + seeded(seedBase + i + 200)) }
-        : { x: 0, z: 0, width: 0, baseHeight: 0 },
-    )
-  }
-  return { mesh, buildings }
+    return building
+      ? { ...building, baseHeight: config.baseHeight * (0.5 + seeded(seedBase + i + 200)) }
+      : { x: 0, z: 0, width: 0, baseHeight: 0 }
+  })
 }
 
 // Scales each instance's height by `heightScale` and hides instances beyond
