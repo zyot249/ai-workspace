@@ -4,6 +4,7 @@ import { createFacadeMaterial, type FacadeUniforms } from './facade-material'
 import { damp, dampState, easeInOut, lerpStop } from './interpolate'
 import { clearsPath, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, WAYPOINTS } from './path'
 import { STOPS, type Stop, type StopState } from './stops'
+import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { createShaderErrorRecorder } from './shader-utils'
 import type { Tier } from './tier'
 
@@ -481,7 +482,9 @@ function createMarket(): THREE.Group {
     group.add(roof)
   }
   const lampMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2a2f, roughness: 0.7 })
-  const lampGlow = new THREE.MeshBasicMaterial({ color: 0xffdca8 })
+  const lampGlow = new THREE.MeshBasicMaterial({ color: POST_EMISSIVES.lamp.hex })
+  lampGlow.name = 'journey-lamp-glow'
+  lampGlow.color.multiplyScalar(POST_EMISSIVES.lamp.gain)
   for (const side of [-1, 1]) {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6), lampMaterial)
     post.position.set(side * (ROAD_HALF_WIDTH + 0.3), 0.1, 0)
@@ -522,7 +525,9 @@ function createCourtyard(): THREE.Group {
   roof.position.set(0, 1.4, backZ + 1.8)
   group.add(roof)
 
-  const windowMaterial = new THREE.MeshBasicMaterial({ color: 0xffe1a8 })
+  const windowMaterial = new THREE.MeshBasicMaterial({ color: POST_EMISSIVES.courtyard.hex })
+  windowMaterial.name = 'journey-courtyard-window'
+  windowMaterial.color.multiplyScalar(POST_EMISSIVES.courtyard.gain)
   for (const side of [-1, 1]) {
     const win = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.5), windowMaterial)
     win.position.set(side * 0.9, 0, backZ + 1.8 + 1.51)
@@ -549,10 +554,12 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     uLit: { value: 0 }, uSkyTint: { value: new THREE.Color() },
   }
 
+  let post: PostPipeline | null = null
   let disposed = false
   function dispose() {
     if (disposed) return
     disposed = true
+    post?.dispose()
     const geometries = new Set<THREE.BufferGeometry>()
     const materials = new Set<THREE.Material>()
     const textures = new Set<THREE.Texture>()
@@ -574,6 +581,8 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
 
   try {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowPower ? 1.5 : 2))
+  renderer.toneMapping = TONE_MAPPING
+  renderer.outputColorSpace = THREE.SRGBColorSpace
   options.onRenderer?.(renderer)
 
   // The scene renders its own sky (day-to-night arc), so the canvas is opaque here
@@ -619,8 +628,14 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   }
 
   function apply(state: StopState) {
-    sky.setRGB(state.skyColor[0], state.skyColor[1], state.skyColor[2], THREE.SRGBColorSpace)
-    fog.color.setRGB(state.fogColor[0], state.fogColor[1], state.fogColor[2], THREE.SRGBColorSpace)
+    // The composer tone-maps the whole frame, so sky and fog stay authored. The
+    // direct path tone-maps only object pixels, so map sky and fog on the CPU.
+    if (post) post.setLook(state.exposure, state.bloomStrength)
+    else renderer.toneMappingExposure = state.exposure
+    const skyRgb = post ? state.skyColor : skyForDirectPipeline(state.skyColor, state.exposure)
+    const fogRgb = post ? state.fogColor : skyForDirectPipeline(state.fogColor, state.exposure)
+    sky.setRGB(skyRgb[0], skyRgb[1], skyRgb[2], THREE.SRGBColorSpace)
+    fog.color.setRGB(fogRgb[0], fogRgb[1], fogRgb[2], THREE.SRGBColorSpace)
     fog.density = state.fogDensity
     hemi.color.setRGB(state.skyColor[0], state.skyColor[1], state.skyColor[2], THREE.SRGBColorSpace)
     facade.uLit.value = state.windowLitRatio
@@ -646,19 +661,31 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     const safeWidth = Math.max(1, width)
     const safeHeight = Math.max(1, height)
     renderer.setSize(safeWidth, safeHeight, false)
+    post?.setSize(safeWidth, safeHeight, renderer.getPixelRatio())
     camera.aspect = safeWidth / safeHeight
     camera.fov = fovForAspect(camera.aspect)
     camera.updateProjectionMatrix()
   }
 
   function renderFrame() {
-    renderer.render(scene, camera)
+    if (post) post.render()
+    else renderer.render(scene, camera)
     recorder.assertClean()
   }
 
   apply(current)
   resize(canvas.clientWidth || canvas.width || window.innerWidth,
     canvas.clientHeight || canvas.height || window.innerHeight)
+  post = lowPower ? null : createPostPipeline(renderer, scene, camera)
+  apply(current)
+  if (post) {
+    // Force bloom on so every optional fullscreen program compiles now, then
+    // restore the real look; a later night chapter must not compile mid-scroll.
+    post.setLook(current.exposure, 0.5)
+    post.render()
+    recorder.assertClean()
+    apply(current)
+  }
   renderFrame()
   const gl = renderer.getContext()
   const startupError = gl.getError()

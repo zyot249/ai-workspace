@@ -135,6 +135,76 @@ function lifetime(): LifetimeResult {
   } finally { post?.dispose(); sentinel.dispose(); fixture.dispose() }
 }
 
-const cityPost = { synthetic, lifetime }
+let sawOutput = false
+let restoreActualRenderer: (() => void) | undefined
+
+function mountActual(input: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; forceNoHalfFloat?: boolean; width: number; height: number }): void {
+  sawOutput = false
+  let restoreExtension: (() => void) | undefined
+  try {
+    window.cityGpu.mountJourney(input, {
+      onRenderer(renderer) {
+        const oldHas = renderer.extensions.has
+        if (input.forceNoHalfFloat) {
+          renderer.extensions.has = name => ['EXT_color_buffer_float', 'EXT_color_buffer_half_float'].includes(name)
+            ? false : oldHas.call(renderer.extensions, name)
+          restoreExtension = () => { renderer.extensions.has = oldHas }
+        }
+        const oldRender = renderer.render
+        renderer.render = function (object, camera) {
+          const mesh = object as THREE.Mesh
+          const material = mesh.material
+          if (mesh.isMesh && !Array.isArray(material) && material?.name === 'OutputShader') sawOutput = true
+          return oldRender.call(renderer, object, camera)
+        }
+        restoreActualRenderer = () => { renderer.render = oldRender }
+      },
+    })
+  } finally { restoreExtension?.() }
+}
+
+function actualDiagnostics() {
+  const { renderer, scene } = window.cityGpu.getJourneyContext()
+  const owned = new Set<THREE.MeshBasicMaterial>()
+  scene.traverse(object => {
+    const material = (object as THREE.Mesh).material
+    if (material instanceof THREE.MeshBasicMaterial &&
+      ['journey-lamp-glow', 'journey-courtyard-window'].includes(material.name)) owned.add(material)
+  })
+  return {
+    ...window.cityGpu.diagnostics(), composer: sawOutput, toneMapping: renderer.toneMapping,
+    exposure: renderer.toneMappingExposure, expectedToneMapping: TONE_MAPPING,
+    ownedLuminance: [...owned].map(m => 0.2126 * m.color.r + 0.7152 * m.color.g + 0.0722 * m.color.b),
+  }
+}
+
+function disposeActual(): void {
+  restoreActualRenderer?.(); restoreActualRenderer = undefined
+  window.cityGpu.dispose()
+}
+
+let originalPostCompile: THREE.Material['onBeforeCompile'] | undefined
+
+// RawShaderMaterial inherits Material.prototype.onBeforeCompile, so patching it
+// reaches the fullscreen post programs without touching facade shaders.
+function installPostFault(stage: 'output' | 'bloom' = 'output'): void {
+  if (originalPostCompile) throw new Error('post fault already installed')
+  const original = THREE.Material.prototype.onBeforeCompile
+  originalPostCompile = original
+  THREE.Material.prototype.onBeforeCompile = function (this: THREE.Material, shader, renderer) {
+    original.call(this, shader, renderer)
+    const isBloom = 'uniforms' in this && Boolean((this as THREE.ShaderMaterial).uniforms.luminosityThreshold)
+    if ((stage === 'output' && this.name === 'OutputShader') || (stage === 'bloom' && isBloom)) {
+      shader.fragmentShader += '\ninvalid_post_fullscreen_token;\n'
+    }
+  }
+}
+
+function restorePostFault(): void {
+  if (originalPostCompile) THREE.Material.prototype.onBeforeCompile = originalPostCompile
+  originalPostCompile = undefined
+}
+
+const cityPost = { synthetic, lifetime, mountActual, actualDiagnostics, disposeActual, installPostFault, restorePostFault }
 declare global { interface Window { cityPost: typeof cityPost } }
 window.cityPost = cityPost

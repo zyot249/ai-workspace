@@ -133,6 +133,8 @@ function onContextRestored() {
   contextLost = false
   clearTimeout(restoreTimer)
   restoreTimer = undefined
+  // Restoring resets the composer's targets; re-apply the current size.
+  onResize()
   start()
 }
 
