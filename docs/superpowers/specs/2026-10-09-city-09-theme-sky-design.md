@@ -20,6 +20,7 @@ The theme picks the time of day, and scrolling still moves time forward:
 Success criteria:
 
 - In light mode, every chapter shows a blue sky (zenith hue between 200 and 230 degrees in HSL) with visible clouds. Cloud pixel coverage of the sky above `h = 0.15` is within 0.1 of the chapter's `cloudCover`.
+  Status 2026-10-09: with `CLOUD_SCALE` 0.6, on-screen coverage at the chapter cameras is 0.13 to 0.32 above `cloudCover`, and drift moves it further. GPU test 12 checks the GPU against the mirror; the 0.1 criterion is left to screenshot tuning.
 - In dark mode, `intro` shows a sunset glow and `about` shows a dark night sky with stars. Windows and bloom match today's values or exceed them.
 - Clicking the theme toggle changes the scene from one arc to the other in 1.2 s (±0.1 s plus the existing damping lag). On the `reduced` tier the change is immediate.
 - A visitor whose saved theme is dark sees the dark arc from the first frame. No light-to-dark blend plays on page load.
@@ -174,7 +175,9 @@ Starting values for tuning in screenshots. The dark `intro` and `projects` looks
 | intro | Sunset | `#6f7fb8` | `#fbbf9f` | `#f3a683` | 0.05 | 4 | 5 | `#ffb27a` | 0.85 | 0.45 | `#ffc29a` | `#7a6a8f` | 0.7 | 0 | 0.3 | 1 | 0.12 |
 | projects | Dusk | `#2e2a5c` | `#7c6aa8` | `#6b5b95` | 0.05 | -3 | 10 | `#c97aa8` | 0.45 | 0.4 | `#d79ab8` | `#3d3560` | 0.6 | 0.3 | 0.55 | 1.1 | 0.25 |
 | skills | Evening | `#151834` | `#3a3768` | `#2e2a52` | 0.055 | -12 | 10 | `#8a86c4` | 0.15 | 0.3 | `#5d5a8a` | `#1f1e3a` | 0.55 | 0.7 | 0.75 | 1.15 | 0.35 |
-| about | Night | `#0a0d22` | `#1e2340` | `#141833` | 0.065 | -22 | 10 | `#7a8cc4` | 0 | 0.25 | `#3a4266` | `#12152a` | 0.5 | 1 | 0.9 | 1.25 | 0.42 |
+| about | Night | `#0a0d22` | `#1e2340` | `#141833` | 0.065 | -22 | 10 | `#7a8cc4` | 0 | 0.1 | `#2c3353` | `#181c35` | 0.5 | 1 | 0.9 | 1.25 | 0.42 |
+
+The dark `about` clouds were retuned on 2026-10-09 so test 16 holds (worst case 4/255). The authored values gave 41/255.
 
 Constraints that tests enforce:
 
