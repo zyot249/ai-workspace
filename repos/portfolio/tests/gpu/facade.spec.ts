@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+
 test('harness runs the real scene and checks a real render', async ({ page }) => {
   await page.goto('/tests/gpu/harness.html')
   await page.waitForFunction(() => Boolean(window.cityGpu))
@@ -97,14 +98,14 @@ for (const variant of ['full', 'lite'] as const) {
       const sample = (pixels: number[], x: number, y: number) => pixels.slice((y * 512 + x) * 4, (y * 512 + x) * 4 + 3)
       const x = Math.floor((0.064 + 0.8) / 1.6 * 512)
       const rows = [0, 1].map(row => Math.floor((row * 0.22 + 0.11) / 1.6 * 512))
-      const small = window.cityGpu.probeFacade({ variant, height: 0.6, face: 'front', lit: 1 })
-      const tall = window.cityGpu.probeFacade({ variant, height: 1, face: 'front', lit: 1 })
+      const small = window.cityGpu.probeFacade({ variant, height: 0.6, face: 'front', lit: 1.4 /* above every spec 06 threshold (max 1.25) plus fade */ })
+      const tall = window.cityGpu.probeFacade({ variant, height: 1, face: 'front', lit: 1.4 /* above every spec 06 threshold (max 1.25) plus fade */ })
       const sides = (['front', 'back', 'left', 'right'] as const).map(face => {
-        const on = window.cityGpu.probeFacade({ variant, height: 1, face, lit: 1 })
+        const on = window.cityGpu.probeFacade({ variant, height: 1, face, lit: 1.4 /* above every spec 06 threshold (max 1.25) plus fade */ })
         const off = window.cityGpu.probeFacade({ variant, height: 1, face, lit: 0 })
         return { on: sample(on.pixels, x, rows[0]!), off: sample(off.pixels, x, rows[0]!), errors: [on.diagnostics, off.diagnostics] }
       })
-      const roofOn = window.cityGpu.probeFacade({ variant, height: 1, face: 'top', lit: 1 })
+      const roofOn = window.cityGpu.probeFacade({ variant, height: 1, face: 'top', lit: 1.4 /* above every spec 06 threshold (max 1.25) plus fade */ })
       const roofOff = window.cityGpu.probeFacade({ variant, height: 1, face: 'top', lit: 0 })
       return { rows: rows.map(y => [sample(small.pixels, x, y), sample(tall.pixels, x, y)]), sides,
         roofSame: roofOn.pixels.every((byte, index) => byte === roofOff.pixels[index]),
@@ -124,8 +125,8 @@ for (const variant of ['full', 'lite'] as const) {
     await page.goto('/tests/gpu/harness.html')
     await page.waitForFunction(() => Boolean(window.cityGpu))
     const result = await page.evaluate(variant => {
-      const small = window.cityGpu.probeFacade({ variant, height: 0.6, face: 'front', lit: 1 })
-      const tall = window.cityGpu.probeFacade({ variant, height: 1, face: 'front', lit: 1 })
+      const small = window.cityGpu.probeFacade({ variant, height: 0.6, face: 'front', lit: 1.4 /* above every spec 06 threshold (max 1.25) plus fade */ })
+      const tall = window.cityGpu.probeFacade({ variant, height: 1, face: 'front', lit: 1.4 /* above every spec 06 threshold (max 1.25) plus fade */ })
       const x = Math.floor((0.064 + 0.8) / 1.6 * 512)
       let retainedError = 0
       for (let y = 3; y < 185; y++) for (let channel = 0; channel < 3; channel++) {
@@ -142,9 +143,9 @@ for (const variant of ['full', 'lite'] as const) {
         for (let i = 0; i < pixels.length; i += 4) if (pixels[i]! + pixels[i + 1]! + pixels[i + 2]! > 650) count++
         return count
       }
-      const intro = window.cityGpu.probeFacade({ variant, height: 1, face: 'front', lit: 0.05 })
+      const intro = window.cityGpu.probeFacade({ variant, height: 1, face: 'front', lit: 0.15 })
       const about = window.cityGpu.probeFacade({ variant, height: 1, face: 'front', lit: 0.9 })
-      const far = window.cityGpu.probeFacade({ variant, height: 1, face: 'front', lit: 1,
+      const far = window.cityGpu.probeFacade({ variant, height: 1, face: 'front', lit: 1.4 /* above every spec 06 threshold (max 1.25) plus fade */,
         depth: variant === 'lite' ? 20 : 3, span: variant === 'full' ? 64 : 1.6 })
       return { retainedError, smallRevealed: nonBlack(small.pixels), tallRevealed: nonBlack(tall.pixels),
         introBright: bright(intro.pixels), aboutBright: bright(about.pixels), farBright: bright(far.pixels),

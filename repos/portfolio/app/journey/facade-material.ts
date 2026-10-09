@@ -1,15 +1,22 @@
 import * as THREE from 'three'
 import { FACADE_CELL } from './facade-grid'
 import { replaceOrThrow } from './shader-utils'
+import { WINDOW, WINDOW_PALETTE } from './window-look'
 
 export interface FacadeUniforms {
   uLit: { value: number }
   uSkyTint: { value: THREE.Color }
+  uTime: { value: number }
+  uFlicker: { value: number }
+  uEmissiveScale: { value: number }
 }
 export type FacadeVariant = 'full' | 'lite'
 
-const warm = new THREE.Color(0xffe1a8)
-const warmGlsl = `vec3(${warm.r.toFixed(9)}, ${warm.g.toFixed(9)}, ${warm.b.toFixed(9)})`
+const glsl = (n: number) => (Number.isInteger(n) ? `${n}.0` : n.toPrecision(12))
+const glsl3 = (rgb: readonly number[]) => `vec3(${rgb.map(glsl).join(', ')})`
+const [warm, neutral, cool] = WINDOW_PALETTE
+const saltedHash = (salt: readonly [number, number, number]) =>
+  `windowHash13(vec3(facadeCell + vec2(${glsl(salt[0])}, ${glsl(salt[1])}), vSeed + ${glsl(salt[2])}))`
 const vertexDeclarations = `
 attribute float aSeed;
 varying vec3 vFacadePos;
@@ -18,16 +25,57 @@ varying float vSeed;
 varying float vFacadeDepth;
 `
 const fragmentDeclarations = `
+precision highp float;
 uniform float uLit;
+uniform float uTime;
+uniform float uFlicker;
+uniform float uEmissiveScale;
 uniform vec3 uSkyTint;
 varying vec3 vFacadePos;
 varying vec3 vFaceNormal;
 varying float vSeed;
 varying float vFacadeDepth;
-float facadeHash13(vec3 p) {
-  return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+float windowHash11(float p) {
+  p = fract(p * ${glsl(WINDOW.hashMultiplier)});
+  p *= p + ${glsl(WINDOW.hash11Offset)};
+  p *= p + p;
+  return fract(p);
+}
+float windowHash13(vec3 p) {
+  vec3 p3 = fract(p * ${glsl(WINDOW.hashMultiplier)});
+  vec3 q = p3.zyx + ${glsl(WINDOW.hash13Offset)};
+  float a = p3.x * q.x;
+  float b = p3.y * q.y;
+  float c = p3.z * q.z;
+  float d = (a + b) + c;
+  p3 += d;
+  return fract((p3.x + p3.y) * p3.z);
 }
 `
+
+const fullEmission = `
+  facadeTintHash = ${saltedHash(WINDOW.tintSalt)};
+  float brightnessHash = ${saltedHash(WINDOW.brightnessSalt)};
+  float flickerHash = ${saltedHash(WINDOW.flickerSalt)};
+  vec3 lightColor = ${glsl3(warm.linear)};
+  float lightGain = ${glsl(warm.gain)};
+  if (facadeTintHash >= ${glsl(WINDOW.neutralCut)}) {
+    lightColor = ${glsl3(cool.linear)}; lightGain = ${glsl(cool.gain)};
+  } else if (facadeTintHash >= ${glsl(WINDOW.warmCut)}) {
+    lightColor = ${glsl3(neutral.linear)}; lightGain = ${glsl(neutral.gain)};
+  }
+  float brightness = mix(${glsl(WINDOW.brightnessMin)}, ${glsl(WINDOW.brightnessMax)}, brightnessHash);
+  float flicker = 1.0;
+  if (facadeTintHash >= ${glsl(WINDOW.neutralCut)} && flickerHash < ${glsl(WINDOW.flickerCut)}) {
+    float phase = flickerHash * ${glsl(WINDOW.phasePeriod)};
+    flicker = mix(1.0, 0.8 + 0.2 * sin(uTime * 6.3 + phase)
+      * sin(uTime * 2.1 + phase * 1.7), uFlicker);
+  }
+  facadeWindowEmission = lightColor * lightGain * brightness * flicker
+    * uEmissiveScale * facadeLit * windowCoverage;`
+const liteEmission = `
+  facadeWindowEmission = ${glsl3(warm.linear)} * ${glsl(warm.gain)}
+    * uEmissiveScale * facadeLit * windowCoverage;`
 
 function facadeColorPatch(variant: FacadeVariant): string {
   const filter = variant === 'full'
@@ -47,7 +95,8 @@ vec2 facadeLocal = vec2(0.0);
 float windowCoverage = 0.0;
 float distanceFade = 0.0;
 float facadeCellHash = 0.0;
-float facadeBuildingHash = 0.0;
+float facadeBuildingHash = windowHash11(vSeed);
+float facadeTintHash = 0.0;
 float facadeLit = 0.0;
 vec3 facadeWindowEmission = vec3(0.0);
 if (abs(vFaceNormal.y) < 0.5) {
@@ -66,12 +115,23 @@ if (abs(vFaceNormal.y) < 0.5) {
   const float floorArea = 0.02 / 0.22;
   vec3 averageFacade = mix(wallColor * (1.0 - 0.12 * floorArea), glass, windowArea);
   diffuseColor.rgb = mix(detail, averageFacade, distanceFade);
-  facadeCellHash = facadeHash13(vec3(facadeCell, vSeed));
-  facadeLit = 1.0 - step(uLit, facadeCellHash);
-  facadeWindowEmission = ${warmGlsl} * 2.7 * facadeLit * windowCoverage;
+  facadeCellHash = windowHash13(vec3(facadeCell, vSeed));
+  float k = mix(${glsl(WINDOW.kMax)}, ${glsl(WINDOW.kMin)}, facadeBuildingHash);
+  float threshold = facadeCellHash * k;
+  facadeLit = smoothstep(threshold, threshold + ${glsl(WINDOW.fadeBand)}, uLit);${variant === 'full' ? fullEmission : liteEmission}
 }
 `
 }
+
+const debugOutput = `
+#if defined(FACADE_DEBUG_WINDOW) && FACADE_DEBUG_WINDOW == 1
+  gl_FragColor = vec4(vec3(facadeLit), 1.0);
+#elif defined(FACADE_DEBUG_WINDOW) && FACADE_DEBUG_WINDOW == 2
+  gl_FragColor = vec4(facadeCellHash, facadeBuildingHash, facadeTintHash, 1.0);
+#elif defined(FACADE_DEBUG_WINDOW) && FACADE_DEBUG_WINDOW == 3
+  gl_FragColor = vec4(facadeWindowEmission, 1.0);
+#endif
+`
 
 export function createFacadeMaterial(options: {
   color: number; uniforms: FacadeUniforms; variant: FacadeVariant
@@ -79,7 +139,9 @@ export function createFacadeMaterial(options: {
   const { color, uniforms, variant } = options
   const material = new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.05 })
   material.name = `journey-facade-${variant}`
-  material.customProgramCacheKey = () => `facade-${variant}`
+  material.precision = 'highp'
+  material.customProgramCacheKey = () =>
+    `facade-${variant}-windows-ab-${material.defines?.FACADE_DEBUG_WINDOW ?? 0}`
   material.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, uniforms)
     shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <common>', '#include <common>\n' + vertexDeclarations)
@@ -97,6 +159,8 @@ vSeed = aSeed;
     shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <common>', '#include <common>\n' + fragmentDeclarations)
     shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <color_fragment>', facadeColorPatch(variant))
     shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += facadeWindowEmission;')
+    shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <dithering_fragment>', `#include <dithering_fragment>
+${debugOutput}`)
   }
   return material
 }
