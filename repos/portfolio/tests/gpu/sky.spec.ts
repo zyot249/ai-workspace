@@ -5,11 +5,11 @@ import { SKY_NAME } from '../../app/journey/sky'
 import { GROUND_NAME, HAZE_NAME, RINGS } from '../../app/journey/skyline-far'
 import { WAYPOINTS } from '../../app/journey/path'
 import { cloudOffsetAt } from '../../app/journey/sky'
-import { skyGradient, skyParamsFor, sunDirectionFor, toLinear } from '../../app/journey/sky-mirror'
+import { composeSky, skyGradient, skyLayers, skyParamsFor, sunDirectionFor, toLinear } from '../../app/journey/sky-mirror'
 import { GROUND_HALF_SIZE, GROUND_Y, SCENE_CENTER } from '../../app/journey/skyline-far'
 import { CHAPTER_IDS, LOOKS, type Vec3 } from '../../app/journey/stops'
 import type { SkySamples, SkyViewResult } from './sky-probe'
-import { byteLuminance, displayBytes, maxChannelDelta } from './sky-expect'
+import { byteLuminance, colorDistance, displayBytes, maxChannelDelta } from './sky-expect'
 
 const NAMES = { dome: SKY_NAME, haze: HAZE_NAME, ground: GROUND_NAME, ringA: RINGS.a.name, ringB: RINGS.b.name, stars: STARS_NAME }
 const COMBINATIONS = [
@@ -214,5 +214,207 @@ for (const pipeline of PIPELINES) for (const theme of ['light', 'dark'] as const
       expectClean(r)
     }
     expect(worstStep).toBeLessThanOrEqual(3)
+  })
+}
+
+const NIGHT_VIEW: [number, number, number] = [0, .8, -1] // ahead along the last leg (-Z), pitched up
+
+// Spec 05 test 8.
+for (const pipeline of PIPELINES) {
+  test(`sun glow centres on the sun and vanishes at night: ${pipeline.name}`, async ({ page }) => {
+    test.setTimeout(180_000)
+    const cases = [
+      { theme: 'light', chapter: 1 }, { theme: 'dark', chapter: 1 }, { theme: 'dark', chapter: 3 },
+    ] as const
+    const results = await page.evaluate(({ mount, names, cases }) => {
+      window.cityGpu.sky.mount({ ...mount, width: 320, height: 180 })
+      return cases.map(c => {
+        window.cityGpu.sky.settle({ theme: c.theme, chapter: c.chapter })
+        const sampling = { xStride: 2, yStride: 2, minH: -1, maxH: 1 }
+        return {
+          glow: window.cityGpu.sky.view({ view: { direction: c.direction }, only: [names.dome], sampling }),
+          none: window.cityGpu.sky.view({ view: { direction: c.direction }, only: [names.dome], sampling, domeUniforms: { uSunGlow: 0 } }),
+        }
+      })
+    }, { mount: pipeline.mount, names: NAMES, cases: cases.map(c => ({ ...c, direction: sunView(c.theme, c.chapter) })) })
+    for (const [i, { glow, none }] of results.entries()) {
+      const night = cases[i]!.chapter === 3
+      if (night) {
+        expect(worstAgainst(glow.samples, k => rgbAt(none.samples, k)), `case ${i}`).toBeLessThanOrEqual(2)
+      } else {
+        let best = -1, bestDiff = 0
+        for (let k = 0; k < glow.samples.x.length; k++) {
+          const diff = byteLuminance(rgbAt(glow.samples, k)) - byteLuminance(rgbAt(none.samples, k))
+          if (diff > bestDiff) { bestDiff = diff; best = k }
+        }
+        expect(bestDiff, `case ${i} glow visible`).toBeGreaterThan(2)
+        const d = dirAt(glow.samples, best), s = glow.sunDirection
+        const angle = Math.acos(Math.min(1, d[0] * s[0]! + d[1] * s[1]! + d[2] * s[2]!)) * 180 / Math.PI
+        expect(angle, `case ${i}`).toBeLessThanOrEqual(25)
+      }
+      expectClean(glow)
+      expectClean(none)
+    }
+  })
+}
+
+// Spec 05 test 9: sorting, haze alpha and stars.
+test('buildings occlude the far rings and the haze leaves the city untinted', async ({ page }) => {
+  test.setTimeout(240_000)
+  const results = await page.evaluate(({ names }) => {
+    window.cityGpu.sky.mount({ tier: 'full', lowPower: false, width: 320, height: 180 })
+    const out = []
+    for (const theme of ['light', 'dark'] as const) for (const chapter of [1, 3]) {
+      window.cityGpu.sky.settle({ theme, chapter })
+      const sampling = { xStride: 4, yStride: 4, minH: -1, maxH: 1 }
+      out.push({
+        all: window.cityGpu.sky.view({ sampling, cityMask: true }),
+        bare: window.cityGpu.sky.view({ sampling, hide: [names.ringA, names.ringB, names.haze] }),
+      })
+    }
+    return out
+  }, { names: NAMES })
+  for (const [i, { all, bare }] of results.entries()) {
+    let cityPixels = 0, worst = 0
+    for (let k = 0; k < all.samples.x.length; k++) {
+      if (!all.samples.city[k]) continue
+      cityPixels++
+      worst = Math.max(worst, maxChannelDelta(rgbAt(all.samples, k), rgbAt(bare.samples, k)))
+    }
+    expect(cityPixels, `case ${i}`).toBeGreaterThan(50)
+    expect(worst, `case ${i}`).toBeLessThanOrEqual(1)
+    expectClean(all)
+    expectClean(bare)
+  }
+})
+
+test('haze alpha ramps from 0.85 at the bottom to 0 at the top', async ({ page }) => {
+  const r = await page.evaluate(() => window.cityGpu.sky.hazeAlpha())
+  expect(Math.abs(r.bottom - .85)).toBeLessThanOrEqual(.03)
+  expect(Math.abs(r.middle - .43)).toBeLessThanOrEqual(.03)
+  expect(Math.abs(r.top)).toBeLessThanOrEqual(.03)
+  expectClean(r)
+})
+
+test('stars show above the dome at dark about', async ({ page }) => {
+  const r = await page.evaluate(({ names, direction }) => {
+    window.cityGpu.sky.mount({ tier: 'full', lowPower: false, width: 320, height: 180 })
+    window.cityGpu.sky.settle({ theme: 'dark', chapter: 3 })
+    const sampling = { xStride: 1, yStride: 1, minH: .05, maxH: 1 }
+    return {
+      stars: window.cityGpu.sky.view({ view: { direction }, sampling }),
+      none: window.cityGpu.sky.view({ view: { direction }, sampling, hide: [names.stars] }),
+    }
+  }, { names: NAMES, direction: NIGHT_VIEW })
+  let visible = 0
+  for (let k = 0; k < r.stars.samples.x.length; k++) {
+    if (maxChannelDelta(rgbAt(r.stars.samples, k), rgbAt(r.none.samples, k)) > 8) visible++
+  }
+  expect(visible).toBeGreaterThan(0)
+  expectClean(r.stars)
+})
+
+test('both far rings show behind the city at projects and skills', async ({ page }) => {
+  test.setTimeout(180_000)
+  const results = await page.evaluate(({ names }) => {
+    window.cityGpu.sky.mount({ tier: 'full', lowPower: false, width: 320, height: 180 })
+    const out = []
+    for (const theme of ['light', 'dark'] as const) for (const chapter of [1, 2]) {
+      window.cityGpu.sky.settle({ theme, chapter })
+      const sampling = { xStride: 2, yStride: 2, minH: -.05, maxH: .6 }
+      out.push({
+        all: window.cityGpu.sky.view({ sampling }),
+        noA: window.cityGpu.sky.view({ sampling, hide: [names.ringA] }),
+        noB: window.cityGpu.sky.view({ sampling, hide: [names.ringB] }),
+      })
+    }
+    return out
+  }, { names: NAMES })
+  for (const [i, { all, noA, noB }] of results.entries()) {
+    const changed = (other: SkyViewResult) => all.samples.x.filter((_, k) =>
+      maxChannelDelta(rgbAt(all.samples, k), rgbAt(other.samples, k)) > 2).length
+    expect(changed(noA), `case ${i} ring A`).toBeGreaterThan(20)
+    expect(changed(noB), `case ${i} ring B`).toBeGreaterThan(20)
+    expectClean(all)
+  }
+})
+
+// Spec 05 test 10: shader errors and context restore, both variants.
+for (const input of [{ tier: 'full', lowPower: false }, { tier: 'lite', lowPower: true }] as const) {
+  test(`sky survives a context restore: ${input.tier}`, async ({ page }) => {
+    const r = await page.evaluate(async ({ input, names }) => {
+      window.cityGpu.sky.mount({ ...input, width: 320, height: 180 })
+      window.cityGpu.sky.settle({ theme: 'dark', chapter: 1 })
+      const sampling = { xStride: 4, yStride: 4, minH: -1, maxH: 1 }
+      const before = window.cityGpu.sky.view({ only: [names.dome, names.haze], sampling })
+      await window.cityGpu.loseAndRestore()
+      window.cityGpu.resizeJourney(320, 180)
+      window.cityGpu.sky.settle({ theme: 'dark', chapter: 1 })
+      const after = window.cityGpu.sky.view({ only: [names.dome, names.haze], sampling })
+      return { before, after }
+    }, { input, names: NAMES })
+    expect(r.after.samples.x.length).toBe(r.before.samples.x.length)
+    expect(worstAgainst(r.after.samples, k => rgbAt(r.before.samples, k))).toBeLessThanOrEqual(2)
+    expectClean(r.before)
+    expectClean(r.after)
+  })
+}
+
+// Spec 09 test 12, as decided on 2026-10-09: the GPU must match the mirror's
+// cloud pixels. The gap from cloudCover is recorded, not asserted.
+for (const pipeline of PIPELINES) {
+  test(`cloud pixels match the mirror in every light chapter: ${pipeline.name}`, async ({ page }, testInfo) => {
+    test.setTimeout(240_000)
+    const results = await page.evaluate(({ mount, names }) => {
+      window.cityGpu.sky.mount({ ...mount, width: 320, height: 180 })
+      return [0, 1, 2, 3].map(chapter => {
+        window.cityGpu.sky.settle({ theme: 'light', chapter })
+        const sampling = { xStride: 2, yStride: 2, minH: .15, maxH: 1 }
+        return {
+          sky: window.cityGpu.sky.view({ only: [names.dome], sampling }),
+          clear: window.cityGpu.sky.view({ only: [names.dome], sampling, domeUniforms: { uCloudCover: 0 } }),
+        }
+      })
+    }, { mount: pipeline.mount, names: NAMES })
+    for (const [chapter, { sky, clear }] of results.entries()) {
+      const params = paramsOf(sky)
+      const n = sky.samples.x.length
+      expect(n, `chapter ${chapter}`).toBeGreaterThan(500)
+      let gpuClouds = 0, mirrorClouds = 0, worstClear = 0
+      for (let k = 0; k < n; k++) {
+        const layers = skyLayers(dirAt(sky.samples, k), params, sky.variant)
+        const cloudy = displayBytes(composeSky(layers, 1), sky.exposure)
+        const mirrorClear = displayBytes(composeSky(layers, 0), sky.exposure)
+        const mirror = displayBytes(composeSky(layers), sky.exposure)
+        const gpu = rgbAt(sky.samples, k), gpuClear = rgbAt(clear.samples, k)
+        worstClear = Math.max(worstClear, maxChannelDelta(gpuClear, mirrorClear))
+        if (colorDistance(gpu, cloudy) < colorDistance(gpu, gpuClear)) gpuClouds++
+        if (colorDistance(mirror, cloudy) < colorDistance(mirror, mirrorClear)) mirrorClouds++
+      }
+      testInfo.annotations.push({ type: 'cloud-cover',
+        description: `${pipeline.name} ${CHAPTER_IDS[chapter]}: on screen ${(gpuClouds / n).toFixed(3)}, cloudCover ${sky.state.cloudCover}` })
+      expect(worstClear, `chapter ${chapter} clear sky`).toBeLessThanOrEqual(3)
+      expect(Math.abs(gpuClouds - mirrorClouds) / n, `chapter ${chapter} clouds`).toBeLessThanOrEqual(.03)
+      expectClean(sky)
+      expectClean(clear)
+    }
+  })
+}
+
+// Spec 09 test 16: night clouds stay faint over the clear sky.
+for (const pipeline of PIPELINES) {
+  test(`night clouds stay within 8/255 at dark about: ${pipeline.name}`, async ({ page }) => {
+    const r = await page.evaluate(({ mount, names, direction }) => {
+      window.cityGpu.sky.mount({ ...mount, width: 320, height: 180 })
+      window.cityGpu.sky.settle({ theme: 'dark', chapter: 3 })
+      const sampling = { xStride: 2, yStride: 2, minH: .02, maxH: 1 }
+      return {
+        sky: window.cityGpu.sky.view({ view: { direction }, only: [names.dome], sampling }),
+        clear: window.cityGpu.sky.view({ view: { direction }, only: [names.dome], sampling, domeUniforms: { uCloudCover: 0 } }),
+      }
+    }, { mount: pipeline.mount, names: NAMES, direction: NIGHT_VIEW })
+    expect(r.sky.samples.x.length).toBeGreaterThan(1000)
+    expect(worstAgainst(r.sky.samples, k => rgbAt(r.clear.samples, k))).toBeLessThanOrEqual(8)
+    expectClean(r.sky)
   })
 }
