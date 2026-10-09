@@ -2,7 +2,7 @@
 
 Date: 2026-10-09
 Status: Draft, pending review
-Applies to: specs 01 to 08 of the City polish series
+Applies to: specs 01 to 09 of the City polish series
 
 This file holds rules that every spec in the series follows. Each spec links here instead of repeating them.
 
@@ -47,12 +47,21 @@ Phones had WebGL context loss in October 2026 (see commits 7323e76 and 83a0b07).
 
 ## 4. New `StopState` fields
 
-A new field on `StopState` requires all four of these changes in the same commit:
+Spec 09 splits `StopState` into two parts (`StopState = PathState & LookState`). Every new field belongs to exactly one of them:
 
-1. The field on the `StopState` type in `app/journey/stops.ts`.
-2. A value on each of the four `STOPS`.
-3. A line in `lerpStop` in `app/journey/interpolate.ts`. `lerpStop` lists every field by name, so a missed field breaks the day-to-night animation silently.
-4. An assertion in `tests/journey/interpolate.test.ts` that the field interpolates at p = 0, 0.5, and 1.
+- **Path field:** where the camera is or how the city is laid out (camera distance and height, look target, building density and height). It does not change with the theme.
+- **Look field:** anything visual that changes with the time of day (sky, fog, sun, clouds, lights, stars, windows, exposure, bloom, wetness). It has a value per theme.
+
+A new **look field** requires all four of these changes in the same commit:
+
+1. The field on the `LookState` type in `app/journey/stops.ts`.
+2. A value in each of the eight `LOOKS` entries (`LOOKS.light` and `LOOKS.dark`, four chapters each). Pick the light value deliberately; do not copy the dark value by default.
+3. A line in `lerpLook` in `app/journey/interpolate.ts`. `lerpLook` lists every field by name, so a missed field breaks the scroll arc and the theme blend silently. Angles use `lerpAngle`.
+4. An assertion in `tests/journey/interpolate.test.ts` that the field interpolates at p = 0, 0.5, and 1, and that `target(c, p, 0)` and `target(c, p, 1)` return the light and dark values.
+
+A new **path field** requires the same four changes against `PathState`, the four `PATH_STOPS` entries, `lerpPath`, and an interpolation test. It must not depend on `themeMix`.
+
+**Before spec 09 lands**, the old rule applies: add the field to `StopState`, to each of the four `STOPS`, to `lerpStop`, and to `interpolate.test.ts`. Spec 09's implementation moves every such field into `PathState` or `LookState`.
 
 ## 5. File size and module layout
 
@@ -93,4 +102,4 @@ Performance procedure used by every spec that states a millisecond budget. Displ
 
 ## 9. Visual verification
 
-Each spec lists screenshots to capture. Capture them at the four chapters (`progress` 0 for each) and at one mid-transition frame, on desktop and on the iPhone 14 Pro Max emulation, in light and dark theme. Store them in the PR description, not in the repo.
+Each spec lists screenshots to capture. Capture them at the four chapters (`progress` 0 for each) and at one mid-transition frame, on desktop and on the iPhone 14 Pro Max emulation, in light and dark theme. After spec 09, light and dark are two different arcs, so each theme needs its own set, plus one frame halfway through a theme blend (`themeMix` 0.5). Store them in the PR description, not in the repo.
