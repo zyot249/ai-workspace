@@ -1,7 +1,7 @@
 # City polish 05: Sky dome and atmospheric haze
 
 Date: 2026-10-09
-Status: Draft, pending review and prioritization. Palette, cloud streaks, and star rule superseded by [spec 09](2026-10-09-city-09-theme-sky-design.md), section 7.
+Status: Draft. Palette, clouds, and stars superseded by spec 09; theme arcs implemented in series step 2, dome/haze/clouds scheduled for step 3. See [spec 09](2026-10-09-city-09-theme-sky-design.md).
 Direction: Realistic dusk/dawn skyline
 Series: City polish (05 of 08). Read [00 shared conventions](2026-10-09-city-00-shared-conventions.md) first.
 
@@ -15,7 +15,7 @@ Replace the flat sky with a gradient dome that has a sun glow near the horizon. 
 
 Success criteria:
 
-- The sky shows a vertical gradient (zenith to horizon) and a sun glow whose position and color change across the four chapters. At `projects` the glow is low and warm. At `about` the glow is gone and the sky is dark and cool.
+- The sky shows a vertical gradient (zenith to horizon) and a sun glow whose position and color change across the four chapters. Follow spec 09: light `projects` is morning; dark `intro` is sunset (low, warm glow) and dark `projects` is dusk; dark `about` has no glow and a dark, cool sky.
 - The directional light's direction and color follow the sun, so wall shading changes between chapters.
 - The ground edge is never visible as a hard line at any chapter, camera position, or portrait or landscape viewport. The ground extends to 130 units from the scene center, so its edge is at least 80 units from every camera position, where fog has fully saturated it.
 - At least two depth layers of distant silhouettes are visible behind the near buildings at chapters `projects` and `skills`.
@@ -28,7 +28,7 @@ Success criteria:
 - Volumetric clouds or a moving cloud layer. This spec includes a static, cheap cloud streak term in the sky shader (full variant only) and nothing else.
 - Real-time sky models (Preetham, Hosek). The sky is an authored gradient.
 - Shadow maps. The sun direction only drives shading and the rim from spec 04.
-- Star twinkling. The existing `Points` stars remain unchanged.
+- Star twinkling. The existing `Points` stars keep their geometry and count; opacity follows `state.starOpacity`.
 
 ## Current state
 
@@ -40,28 +40,11 @@ Success criteria:
 
 ## Design
 
-### New `StopState` fields
+### Look fields and palettes
 
-Follow shared conventions, section 4 (type, `STOPS`, `lerpStop`, `interpolate.test.ts`).
+The five sky/sun fields are part of `LookState` in spec 09 section 1. Use the eight `LOOKS` entries from spec 09 section 4. `PATH_STOPS` owns the camera and building fields. New visual fields follow shared conventions section 4: type, eight look values, explicit `lerpLook`, and endpoint/midpoint tests.
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `skyZenith` | `Vec3` (sRGB) | Color straight up |
-| `sunElevation` | number (degrees) | Angle above the horizon. Negative is below. |
-| `sunAzimuth` | number (degrees) | Compass direction in world space (0 = toward -Z, positive turns toward -X) |
-| `sunColor` | `Vec3` (sRGB) | Color of the glow and of the directional light |
-| `sunGlow` | number 0 to 1 | Strength of the horizon glow |
-
-The dome gradient has three stops: the horizon color is the existing `fogColor` (so fog and the horizon row are the same value), `skyColor` becomes the **mid-sky** color, and `skyZenith` is straight up. `fogColor` and `skyColor` keep their current fields and values, so `StopState` keeps `fogColor`. Starting values (the `skyColor` column is unchanged from today's `STOPS`):
-
-| Chapter | `skyZenith` | `skyColor` (mid-sky) | `fogColor` (horizon) | `sunElevation` | `sunAzimuth` | `sunColor` | `sunGlow` |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| intro | `#7fb2f0` | `#bfdbfe` | `#e0e7ff` | 38 | 20 | `#fff4e0` | 0.15 |
-| projects | `#6f7fb8` | `#fbbf9f` | `#f3a683` | 7 | 5 | `#ffb27a` | 0.85 |
-| skills | `#2e2a5c` | `#7c6aa8` | `#6b5b95` | -3 | 10 | `#c97aa8` | 0.45 |
-| about | `#0a0d22` | `#1e2340` | `#141833` | -22 | 10 | `#7a8cc4` | 0 |
-
-These are starting values to tune in screenshots. The sun sits ahead of and slightly to the side of the camera at `projects`, so the first views of the hall are backlit by the dusk glow. Azimuth is in world space. The camera turns twice along the path, so check each chapter's view direction and adjust per stop. Colors written to uniforms follow shared conventions, section 1.
+`fogColor` remains the horizon/fog color; `skyColor` is the mid-sky color; `skyZenith` is straight up. Do not restore the former single-arc palette table or `STOPS`.
 
 `sunElevation` below 0 means the sun has set. The directional light keeps a minimum cool "moonlight" intensity at night (below), so the sun's light never goes to zero and flips direction.
 
@@ -87,7 +70,7 @@ export function createSky(variant: 'full' | 'lite'): Sky
 3. Glow envelope. `float env = smoothstep(0.01, 0.05, h);` Both sun terms below are multiplied by `env`, so nothing touches the row at `h <= 0.01`. The glow is an aureole lifted slightly off the horizon line.
 4. Sun glow. `float s = max(dot(normalize(vDir), sunDir), 0.0);` `glow = pow(s, 8.0) * 0.5 + pow(s, 64.0) * 0.8;` Added as `sunColor * glow * sunGlow * vis * env`.
 5. Horizon band. Added as `sunColor * 0.25 * sunGlow * vis * env * exp(-pow((h - 0.07) / 0.07, 2.0))`, weighted by `0.5 + 0.5 * dot(horizontal(vDir), horizontal(sunDir))`. A tint that hugs the horizon on the sun's side.
-6. Cloud streaks (`full` variant): a two-octave value-noise function of `vec2(atan(vDir.x, vDir.z) * 3.0, h * 6.0)`, thresholded to thin horizontal bands between `h = 0.05` and `0.4`, tinted by `mix(sunColor, zenith, 0.6)`, with alpha 0.25 near the sun and 0.08 elsewhere. Static: no time term. `lowPower` skips this term.
+6. Clouds: use spec 09 section 6 in the combined step 3 implementation, after the gradient/glow/band and before the luminance cap. Both shader variants contain clouds regardless of theme.
 7. Bloom cap. After all terms: `float L = dot(col, vec3(0.2126, 0.7152, 0.0722)); col *= min(1.0, SKY_MAX_LUMINANCE / max(L, 1e-4));` with `SKY_MAX_LUMINANCE = 0.92`. The sun glow at `projects` adds to a bright palette and would otherwise exceed the bloom threshold (spec 02, luminance 1.0). The cap keeps the sky out of bloom without touching the composer. The tone-mapping and output chunks follow (`#include <tonemapping_fragment>`, `#include <colorspace_fragment>`).
 
 **Sun direction and visibility.** `sunDirection` is built from elevation and azimuth. `sun.position` (the directional light) is set to `sunDirection * 10` with its Y clamped (below); the target stays at the origin. `Sky` also exposes `sunVisibility` = `smoothstep(-0.3, 0.0, sunDirection.y)`, the same value the shader uses (`vis`). Spec 04 reads `sunDirection` and `sunVisibility` for the roof rim; it does not read `sun.position`, because the light's Y is clamped for moonlight.
@@ -95,20 +78,20 @@ export function createSky(variant: 'full' | 'lite'): Sky
 **Directional light and hemisphere.** Per frame:
 
 - `sun.color` = `sunColor` (sRGB converted).
-- `sun.intensity` = `max(0.25, smoothstep(-6, 12, sunElevation) * 1.0)` times the theme factor (`setTheme`: 0.5 / 0.9 ratio kept). The 0.25 floor is moonlight. Its color at night is the cool `sunColor` of `about`.
-- Hemisphere light: sky color = `skyZenith` mixed 50% with `skyColor`; ground color keeps `0x1a1a1f`.
+- `sun.intensity = max(0.25, smoothstep(-6, 12, sunElevation))`. There is no theme multiplier; the interpolated look controls light levels. The 0.25 floor is moonlight. Its color at night is the cool `sunColor` of `about`.
+- Hemisphere light: sky color = `skyZenith` mixed 50% with `skyColor`; ground color keeps `0x1a1a1f`. `hemi.intensity = state.hemiIntensity`.
 
 When the sun is below the horizon its direction would point up from below. Clamp the light's `position.y` to at least `2` so night shading comes from above (moonlight), but keep `sunDirection` itself (used by the sky glow and spec 04's rim) unclamped.
 
 ### Fog
 
-Fog keeps its authored `fogColor` and `fogDensity` from `STOPS`. The dome's horizon row is the same `fogColor`, with no heading term and no glow at `h <= 0.01`, so the fog and the horizon agree by construction at every camera heading. Fully fogged **ground** appears at about `h = -0.02`, inside the exact-match range. Distant building tops appear at positive elevation, where the sky has gradient and glow, so they silhouette against the sky and are outside this match (see the success criteria). Color space follows shared conventions, section 1: both the dome uniform and `scene.fog.color` are set from the same sRGB stop value. On the direct pipeline, spec 02's CPU tone mapping applies to `fogColor` as before.
+Fog keeps its authored `fogColor` and `fogDensity` from `LOOKS`. The dome's horizon row is the same `fogColor`, with no heading term and no glow at `h <= 0.01`, so the fog and the horizon agree by construction at every camera heading. Fully fogged **ground** appears at about `h = -0.02`, inside the exact-match range. Distant building tops appear at positive elevation, where the sky has gradient and glow, so they silhouette against the sky and are outside this match (see the success criteria). Color space follows shared conventions, section 1: both the dome uniform and `scene.fog.color` are set from the same sRGB stop value. On the direct pipeline, spec 02's CPU tone mapping applies to `fogColor` as before.
 
 ### Ground, haze band, and distant silhouettes
 
 New module `app/journey/skyline-far.ts`. Everything in this section is centered on the **scene center**, not the camera: `SCENE_CENTER = ((minX + maxX) / 2, (minZ + maxZ) / 2)` of `WAYPOINTS`, about `(-13, -29)`. A camera-centered ring cannot work here, because the path is 100 units long and buildings near the far end are about 95 units from the camera at the start. A ring around the camera at 88 would cut through them. From the scene center, no building is farther than about 60 units (half the path bounding box plus the 18-unit side spread), so everything below sits well outside the city.
 
-1. **Ground.** Replace the ground plane with one sized `260 x 260` centered on `SCENE_CENTER` (radius 130). Its edge is then at least 80 units from every camera position, where `FogExp2` at the lowest density (0.045) has fog factor `exp(-(0.045 * 80)^2)`, about 2e-6: the ground is fully fog-colored. Past the edge, the dome below the horizon shows the same fog color (dome rule 1), so the edge disappears. Update the ground-size comment in `createGround`.
+1. **Ground.** Replace the ground plane with one sized `260 x 260` centered on `SCENE_CENTER` (radius 130). Its edge is then at least 80 units from every camera position, where `FogExp2` Minimum fog density is 0.035; at depth 80, exp(-(0.035 * 80)^2) is about 4e-4. The ground is fully fog-colored. Past the edge, the dome below the horizon shows the same fog color (dome rule 1), so the edge disappears. Update the ground-size comment in `createGround`.
 
 2. **Far silhouettes.** Two rings of boxes as `InstancedMesh` + `MeshBasicMaterial` (`fog: false`, `vertexColors: true`, **white** material color), scene-centered. r186 multiplies material color, geometry vertex color, and instance color together, so the material stays white and the geometry's vertex colors carry the whole gradient. Do not use `setColorAt` on these meshes.
    - Ring A: center distance 100 to 110, 36 boxes, width 5 to 10, depth 5 to 10, height 10 to 26.
@@ -143,7 +126,7 @@ The dome is a scene mesh, so on both pipelines it is a normally rendered object.
 
 ### Stars
 
-Stars stay as they are. Their opacity follows `windowLitRatio`. Draw them after the dome: set `renderOrder = -999` so they are not covered. Because `depthWrite` is false on the dome, stars inside the dome remain visible. The current star radius must be below the dome radius (200); check `createStars` and scale it if needed.
+Existing Points geometry/count/tier policy is retained; opacity follows `state.starOpacity`. Draw them after the dome: set `renderOrder = -999` so they are not covered. Because `depthWrite` is false on the dome, stars inside the dome remain visible. The current star radius must be below the dome radius (200); check `createStars` and scale it if needed.
 
 ## Files
 
@@ -164,7 +147,7 @@ Unit (Vitest, `tests/journey/`):
 
 1. `sunDirectionFor(elevation, azimuth)` returns a unit vector. Elevation 90 gives `(0, 1, 0)`. Elevation 0 and azimuth 0 gives `(0, 0, -1)`. Azimuth 90 gives `-X`. Elevation -22 gives `y < 0`.
 2. `lightFromStop(state)` returns intensity at the floor of 0.25 at `about`, and a position with `y >= 2` even when the sun is below the horizon, while `sunDirectionFor` itself is unclamped. `sunVisibility` is 1 at elevation 7, about 0.92 at -3, and 0 at -22. A separate case shows moonlight does not feed it: at `about`, `sunVisibility` is 0 while the light intensity is the 0.25 floor.
-3. `lerpStop` interpolates the five new fields (shared conventions, section 4). `sunAzimuth` interpolates linearly; assert that no value in the stop table crosses a 180-degree wrap (the table values are within 40 degrees of each other).
+3. `lerpLook` interpolates the sky/sun fields (shared conventions, section 4). `sunAzimuth` uses shortest-angle interpolation (spec 09, section 2); the unit tests cover it.
 4. `silhouetteLayout(ring, count, seed)` returns positions inside the ring's radius band, heights within the ring's range, and identical output for identical seeds. For every box, `center distance + half-diagonal` is below 136 (the haze radius). Separation from the city: compute `cityOuterRadius` as the largest distance from `SCENE_CENTER` to any building footprint corner across all layers and seeds (from the placement code; it is about 41 units today), and assert that every ring-A box's `center distance - half-diagonal` is at least `cityOuterRadius + 30`.
 4b. `skyGradient(h, stopState)` (pure mirror of shader steps 1 to 7, taking linear colors from `toLinear(stop.colorSrgb)`): for `h` in [-0.03, 0.01] it returns `toLinear(fogColor)` exactly (within 1e-6) at every chapter. Endpoints: the **gradient term alone** (steps 1, without glow, band, clouds, or the cap) returns exactly the zenith color at `h = 1`. Glow and cloud terms are tested separately; at `intro` the glow adds a small nonzero amount at the zenith (sun elevation 38 degrees), which is expected. It is continuous: adjacent samples 0.01 apart in `h` differ by less than 0.05 per channel. It is **not** tested for monotonicity, because mid-sky colors in the palette can have channels that are not between the horizon and zenith values (for example `projects`). Pin the curve: `S(0.05)` is below 0.005. Luminance never exceeds `SKY_MAX_LUMINANCE` over a grid of `h` and sun-relative angles at every chapter, including `projects` looking straight at the sun. At `about` the sun terms contribute below 1/255 (`sunGlow = 0` and `vis = 0`).
 4c. Haze geometry: the color attribute has `itemSize` 4, RGB all 1, alpha 0.85 on the bottom ring and 0 on the top ring, and the middle is interpolated. The material has `vertexColors: true`.
@@ -180,6 +163,8 @@ GPU (Playwright, `tests/gpu/sky.spec.ts`):
 8. Sun glow: at `projects`, the brightest sky pixel lies within 25 degrees of the sun's projected position. At `about`, the glow contribution is below 2/255.
 9. Sorting: render with the haze band, silhouettes, buildings, and stars. Buildings occlude silhouettes. Stars are visible above the dome at `about`. The haze does not tint near buildings (a building pixel at distance 5 equals the same render with the haze hidden, within 1/255). Haze alpha, measured by rendering it over a black background: about 0.85 at the bottom edge, about 0.43 at mid height, and 0 at the top, within 0.03.
 10. Shader errors and context restore, for the `full` and `lowPower` variants. After restore, the sky and glow match the pre-loss pixels.
+
+Every chapter-based success criterion and test runs for both themes. Horizon equality and SKY_MAX_LUMINANCE also hold at intermediate theme mixes.
 
 Manual verification (shared conventions, section 9): all four chapters on desktop and iPhone emulation, in light and dark theme. In portrait, check that the sun glow stays in view or leaves it cleanly. Look at each chapter's turn (the camera heading changes by 90 degrees twice) for a visible ring seam in the haze or silhouettes.
 

@@ -16,6 +16,8 @@ Make the city light up like a real one while the user scrolls, and give daytime 
 Success criteria:
 
 - Windows turn on one by one as `windowLitRatio` rises, never off. Between chapters the count of lit windows is monotonic in the ratio.
+
+Exception: a dark-to-light theme blend turns windows off in reverse threshold order. Scroll-only dark-arc progression remains monotonic; the same staggered thresholds are reused while `windowLitRatio` falls during a theme blend.
 - Over a large sample of windows (a window counts as lit when its fade amount exceeds 0.5), the lit fraction at `windowLitRatio` 0.05, 0.3, 0.65, and 0.9 is about 2%, 28%, 63%, and 87%, within the ranges in Testing.
 - Buildings differ: at `windowLitRatio` 0.65, the expected lit fraction per building (the formula's own value, before sampling noise) has a standard deviation of at least 0.08 across buildings. Today's formula gives about 0.094, ranging from 0.50 to 0.83.
 - About 70% of lit windows are warm, 20% neutral, and 10% cool. At most 4% of lit windows flicker, on `full` and not under `reduced` motion.
