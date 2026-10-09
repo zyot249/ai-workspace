@@ -1,7 +1,7 @@
 # City polish 05: Sky dome and atmospheric haze
 
 Date: 2026-10-09
-Status: Draft, pending review and prioritization
+Status: Draft, pending review and prioritization. Palette, cloud streaks, and star rule superseded by [spec 09](2026-10-09-city-09-theme-sky-design.md), section 7.
 Direction: Realistic dusk/dawn skyline
 Series: City polish (05 of 08). Read [00 shared conventions](2026-10-09-city-00-shared-conventions.md) first.
 

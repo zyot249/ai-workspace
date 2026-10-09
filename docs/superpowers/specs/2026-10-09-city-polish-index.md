@@ -19,6 +19,7 @@ Read [00 shared conventions](2026-10-09-city-00-shared-conventions.md) once. Eve
 | 06 | [Staggered night windows](2026-10-09-city-06-staggered-windows-design.md) | Windows light up one by one; mixed colors, flicker, dusk glass reflections. | `window-look.ts`, facade shader | Low (+0.2 ms) | 01 (part C also needs 04) |
 | 07 | [Street life](2026-10-09-city-07-street-life-design.md) | Lamp posts that switch on in sequence, light pools, cars with lights. | `lamps.ts`, `traffic.ts`, `falloff-texture.ts` | Low (+0.4 ms, 6 draw calls) | None |
 | 08 | [Wet road and road detail](2026-10-09-city-08-wet-road-design.md) | Asphalt grain, sidewalks, dashed lines, wet sheen, puddle reflections. | `road.ts`, `wet-road.ts`, `asphalt.ts`, `stops.ts` (`wetness`) | Medium (+1.2 ms desktop, +0.3 ms phone) | Reflection needs 02 |
+| 09 | [Theme-aware sky with clouds](2026-10-09-city-09-theme-sky-design.md) | Light theme: blue morning-to-afternoon sky with drifting clouds. Dark theme: sunset-to-night arc. Theme toggle blends in 1.2 s. | `theme-blend.ts`, `sky-mirror.ts`, `stops.ts` (`PathState`/`LookState`, `LOOKS`) | Low (+0.3 ms on top of 05) | 05 (build together) |
 
 ## Suggested order
 
