@@ -88,9 +88,12 @@ it('calibrates each sRGB class in linear space and meets both brightness contrac
     expect(p.gain).toBe(gainFor(p.hex,2.3))
     expect(Math.abs(p.gain*linearLuminance(p.linear)-2.3)).toBeLessThan(1e-3)
   }
-  const project=windowLookFor(LOOKS.dark.projects,0,'full').uEmissiveScale
-  expect(2.3*.92*project).toBeGreaterThanOrEqual(2)
-  expect(2.3*.92*project*.6).toBeGreaterThan(1)
+  // Every look that blooms must keep lit windows above the bloom threshold.
+  const blooming=CHAPTER_IDS.map(id=>LOOKS.dark[id]).filter(look=>look.bloomStrength>=.01)
+  expect(blooming.length).toBeGreaterThan(0)
+  const minScale=Math.min(...blooming.map(look=>windowLookFor(look,0,'full').uEmissiveScale))
+  expect(2.3*.92*minScale).toBeGreaterThanOrEqual(2)
+  expect(2.3*.92*minScale*.6).toBeGreaterThan(1)
   expect(WINDOW_PALETTE[0].gain*linearLuminance(WINDOW_PALETTE[0].linear)).toBeCloseTo(2.3,6)
 })
 it('has 70/20/10 class shares and roughly 4% eligible flicker among lit samples', () => {

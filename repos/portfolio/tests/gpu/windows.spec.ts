@@ -64,9 +64,11 @@ test('actual normal production emission has calibrated hues and full-window lumi
   expect(total).toBeGreaterThan(2000)
   for(const [i,target] of [.7,.2,.1].entries())
     expect(Math.abs(counts[i]!/total-target)).toBeLessThan(.06)
-  const project=windowLookFor(LOOKS.dark.projects,0,'full').uEmissiveScale
-  const fully=await page.evaluate(({seed,project})=>
-    window.cityGpu.probeWindows({variant:'full',seed,ratio:.3,emissiveScale:project}),{seed,project})
+  const introLook=LOOKS.dark.intro
+  const project=windowLookFor(introLook,0,'full').uEmissiveScale
+  const introRatio=introLook.windowLitRatio
+  const fully=await page.evaluate(({seed,project,introRatio})=>
+    window.cityGpu.probeWindows({variant:'full',seed,ratio:introRatio,emissiveScale:project}),{seed,project,introRatio})
   const fade=await page.evaluate(seed=>
     window.cityGpu.probeWindows({variant:'full',seed,ratio:.3,mode:1}),seed)
   let fullCount=0
