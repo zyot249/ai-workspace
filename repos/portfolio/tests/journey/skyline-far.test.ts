@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
+import { createBuildings, LAYERS } from '../../app/journey/buildings'
+import { CORNER_BLOCKS } from '../../app/journey/footprints'
 import { PATH_TOTAL_LENGTH, pathPointAt } from '../../app/journey/path'
 import { seeded } from '../../app/journey/random'
-import { CORNER_BLOCKS, LAYERS, layerPlacements } from '../../app/journey/scene'
 import { CAMERA_FAR, SKY_RADIUS } from '../../app/journey/sky'
 import { toLinear } from '../../app/journey/sky-mirror'
 import {
@@ -83,9 +84,9 @@ describe('layout', () => {
 
   it('keeps ring A at least 30 units outside the city', () => {
     const cityOuterRadius = Math.max(
-      ...LAYERS.flatMap((config, i) => layerPlacements(config, i, config.count))
+      ...LAYERS.flatMap((config, i) => createBuildings(i, config.count, 0))
         .filter(b => b.width > 0)
-        .flatMap(b => cornerDistances(b.x, b.z, b.width / 2, b.width / 2)),
+        .flatMap(b => cornerDistances(b.x, b.z, b.width / 2, b.depth / 2)),
       ...CORNER_BLOCKS.flatMap(b => cornerDistances(b.x, b.z, b.width / 2, b.depth / 2)),
     )
     expect(cityOuterRadius).toBeGreaterThan(30)

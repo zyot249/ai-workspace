@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
 
+// Near and mid layers each add a spire mesh and a beacon mesh on non-lowPower devices (spec 03).
+const LANDMARK_DRAW_CALLS = 4
+
 
 test('harness runs the real scene and checks a real render', async ({ page }) => {
   await page.goto('/tests/gpu/harness.html')
@@ -51,13 +54,13 @@ for (const [tier, lowPower] of [
       window.cityGpu.dispose()
       return { layers, planeBatchCount, frames, restore, before, after }
     }, { tier, lowPower })
-    expect(result.layers.map(layer => layer.count)).toEqual(lowPower ? [14, 19, 24] : [24, 32, 40])
+    expect(result.layers.map(layer => layer.buildings)).toEqual(lowPower ? [14, 19, 24] : [24, 32, 40])
     expect(result.layers).toHaveLength(3)
     expect(result.planeBatchCount).toBe(0)
     // Parent be4b857 at 640x360, one exhibit: full 58/26/15 and lite 57/25/14 calls.
     // Reduced desktop adds one static star draw while the old reduced path omitted it.
     // City 05 adds four backdrop draws on every tier: dome, haze and two far rings.
-    const expectedCalls = lowPower ? [60, 28, 17] : [61, 29, 18]
+    const expectedCalls = (lowPower ? [60, 28, 17] : [61, 29, 18]).map(calls => calls + (lowPower ? 0 : LANDMARK_DRAW_CALLS))
     expect([result.frames[0]!.calls, result.frames[2]!.calls, result.frames[3]!.calls]).toEqual(expectedCalls)
     for (const layer of result.layers) {
       expect(layer.seedCount).toBe(layer.count)

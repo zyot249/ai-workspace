@@ -5,10 +5,12 @@ import { createTestRenderer, diagnostics, readFrame } from './gpu-utils'
 export function probeFacade(options: {
   variant: FacadeVariant; height: number
   face: 'front' | 'back' | 'left' | 'right' | 'top'; lit: number; depth?: number; span?: number
+  windowed?: boolean
 }) {
   const gpu = createTestRenderer({ width: 512, height: 512 })
   const geometry = new THREE.BoxGeometry(1, 1, 1)
   geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(new Float32Array([0.375]), 1))
+  geometry.setAttribute('aWindowed', new THREE.InstancedBufferAttribute(new Float32Array([options.windowed === false ? 0 : 1]), 1))
   const material = createFacadeMaterial({ color: 0x505050, variant: options.variant,
     uniforms: { uLit: { value: options.lit }, uSkyTint: { value: new THREE.Color(0x6688aa) },
       uTime: { value: 0 }, uFlicker: { value: 0 }, uEmissiveScale: { value: 1 } } })

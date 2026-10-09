@@ -23,6 +23,7 @@ export function probeWindows(input:WindowProbeInput):WindowProbeResult {
   if(input.mode) material.defines={...material.defines,FACADE_DEBUG_WINDOW:input.mode}
   const mesh=new THREE.InstancedMesh(geometry,material,1)
   geometry.setAttribute('aSeed',new THREE.InstancedBufferAttribute(new Float32Array([input.seed]),1))
+  geometry.setAttribute('aWindowed',new THREE.InstancedBufferAttribute(new Float32Array([1]),1))
   mesh.setMatrixAt(0,new THREE.Matrix4().compose(
     new THREE.Vector3(0,4.5,0),new THREE.Quaternion(),new THREE.Vector3(12.8,11,1)))
   mesh.instanceMatrix.needsUpdate=true;mesh.frustumCulled=false
