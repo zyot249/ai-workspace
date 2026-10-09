@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { createJourneyScene, type JourneyScene, type JourneySceneOptions } from '../../app/journey/scene'
 import type { StopState } from '../../app/journey/stops'
+import { buildingDrawCalls } from './buildings-probe'
 import { probeFacade } from './facade-probe'
 import { breakRestoredComponent, componentResourceCounts, componentStatus, componentThemeStatus, mountComponent, setComponentDark, unmountComponent } from './component-probe'
 import './post-probe'
@@ -31,6 +32,7 @@ function currentDiagnostics() {
 const cityGpu = {
   probeFacade,
   probeWindows,
+  buildingDrawCalls,
   mountComponent,
   breakRestoredComponent,
   componentStatus,
