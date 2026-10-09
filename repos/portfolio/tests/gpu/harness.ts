@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { createJourneyScene, type JourneyScene, type JourneySceneOptions } from '../../app/journey/scene'
+import { probeFacade } from './facade-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 
 let journey: JourneyScene | null = null
@@ -15,6 +16,7 @@ function requireRenderer(): THREE.WebGLRenderer {
 }
 
 const cityGpu = {
+  probeFacade,
   mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number },
     observers?: Pick<JourneySceneOptions, 'onRenderer' | 'onSceneReady'>) {
     cityGpu.dispose()
@@ -38,6 +40,18 @@ const cityGpu = {
   getJourneyContext() {
     if (!context) throw new Error('Journey warmup did not complete')
     return { ...context, renderer: requireRenderer() }
+  },
+  journeyLayers() {
+    const { scene } = cityGpu.getJourneyContext()
+    return scene.children
+      .filter((object): object is THREE.InstancedMesh => object instanceof THREE.InstancedMesh
+        && object.material instanceof THREE.Material && object.material.name.startsWith('journey-facade-'))
+      .map(mesh => ({
+        count: mesh.count,
+        seedCount: mesh.geometry.getAttribute('aSeed').count,
+        frustumCulled: mesh.frustumCulled,
+        variant: (mesh.material as THREE.Material).name,
+      }))
   },
   resizeJourney(width: number, height: number) {
     if (!journey) throw new Error('Mount a journey first')
