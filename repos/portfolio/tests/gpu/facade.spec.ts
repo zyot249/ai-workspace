@@ -13,6 +13,21 @@ test('harness runs the real scene and checks a real render', async ({ page }) =>
   expect(result.width).toBe(640)
 })
 
+test('render-cost probe times the actual journey update path', async ({ page }) => {
+  await page.goto('/tests/gpu/harness.html')
+  await page.waitForFunction(() => Boolean(window.cityGpu))
+  const cost = await page.evaluate(async () => {
+    window.cityGpu.mountJourney({ tier: 'lite', lowPower: true, width: 640, height: 360 })
+    const result = await window.cityGpu.measureJourney({ chapter: 2, durationMs: 100 })
+    window.cityGpu.dispose()
+    return result
+  })
+  expect(cost.samples).toBeGreaterThan(0)
+  expect(Number.isFinite(cost.meanMs)).toBe(true)
+  expect(cost.meanMs).toBeGreaterThan(0)
+  expect(cost.p95Ms).toBeGreaterThanOrEqual(cost.medianMs)
+})
+
 for (const [tier, lowPower] of [
   ['full', false], ['lite', true], ['reduced', false], ['reduced', true],
   ['full', true], ['lite', false],

@@ -3,6 +3,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
+  cacheDir: '.cache/gpu-vite',
   resolve: { alias: { '~': fileURLToPath(new URL('./app', import.meta.url)) } },
   plugins: [
     {

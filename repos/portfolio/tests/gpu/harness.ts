@@ -3,6 +3,7 @@ import { createJourneyScene, type JourneyScene, type JourneySceneOptions } from 
 import { probeFacade } from './facade-probe'
 import { breakRestoredComponent, componentResourceCounts, componentStatus, mountComponent, unmountComponent } from './component-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
+import { measureRenderCost } from './render-cost'
 
 let journey: JourneyScene | null = null
 let renderer: THREE.WebGLRenderer | null = null
@@ -68,6 +69,10 @@ const cityGpu = {
     if (!journey) throw new Error('Mount a journey first')
     const mounted = journey
     return () => mounted.update(last.chapter, last.progress, last.time, { x: 0, y: 0 })
+  },
+  async measureJourney(options: { chapter: number; durationMs?: number }) {
+    cityGpu.renderJourney({ chapter: options.chapter, frames: 240 })
+    return measureRenderCost(requireRenderer(), cityGpu.getJourneyUpdate(), options.durationMs)
   },
   diagnostics() { return rendererDiagnostics(requireRenderer()) },
   readFrame() {
