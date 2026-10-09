@@ -1,5 +1,8 @@
+import * as THREE from 'three'
+import { createFacadeMaterial, type FacadeUniforms } from './facade-material'
 import { clearsCornerBlocks, clearsFootprints } from './footprints'
 import { clearsPath, PATH_TOTAL_LENGTH, pathPointAt, ROAD_HALF_WIDTH } from './path'
+import { POST_EMISSIVES } from './post'
 import { seeded } from './random'
 
 export const ROAD_CLEARANCE = ROAD_HALF_WIDTH + 0.3
@@ -244,4 +247,213 @@ export function beaconIsOn(phase: number, time: number, steady: boolean): boolea
   if (steady) return true
   const cycle = (((time / BEACON_PERIOD + phase) % 1) + 1) % 1
   return cycle * BEACON_PERIOD < BEACON_ON_TIME
+}
+
+const EQUIPMENT_COLOR = 0x2a2a30
+const LOW_POWER_SCALE = 0.6
+const MAX_BOX_PARTS = 2
+const HEIGHT_EPSILON = 1e-4
+const HIDDEN_Y = -100
+const LAYER_NAMES = ['journey-building-near', 'journey-building-mid', 'journey-building-far'] as const
+
+export interface BuildingLayer {
+  readonly boxMesh: THREE.InstancedMesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>
+  readonly spireMesh: THREE.InstancedMesh<THREE.ConeGeometry, THREE.MeshStandardMaterial> | null
+  readonly beaconMesh: THREE.InstancedMesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> | null
+  readonly buildings: readonly Building[]
+  readonly partRanges: readonly PartRange[]
+  readonly spireBuildingIndices: readonly number[]
+  readonly scratch: Float32Array
+  // Mutable per-frame cursors for the dirty check (render-loop exception to the immutability rule).
+  lastHeightScale: number
+  lastActiveCount: number
+  lastBeaconMask: number
+}
+
+export interface BuildingLayerOptions {
+  lowPower: boolean
+  facade: FacadeUniforms
+}
+
+function createInstancedMesh<G extends THREE.BufferGeometry, M extends THREE.Material>(
+  geometry: G, material: M, count: number, name: string,
+): THREE.InstancedMesh<G, M> {
+  const mesh = new THREE.InstancedMesh(geometry, material, count)
+  mesh.name = name
+  // r186 caches the instanced bounding sphere at first render, and setMatrixAt does not invalidate it.
+  mesh.frustumCulled = false
+  return mesh
+}
+
+export function createBuildingLayer(layerIndex: number, options: BuildingLayerOptions): BuildingLayer {
+  const config = LAYERS[layerIndex]
+  if (!config) throw new Error(`unknown building layer ${layerIndex}`)
+  const { lowPower, facade } = options
+  const count = lowPower ? Math.round(config.count * LOW_POWER_SCALE) : config.count
+  const buildings = createBuildings(layerIndex, count, lowPower ? 0 : (SPIRE_COUNTS[layerIndex] ?? 0))
+  const { ranges, total } = partRangesFor(buildings)
+  const name = LAYER_NAMES[layerIndex] ?? `journey-building-${layerIndex}`
+
+  const scratch = new Float32Array(PART_STRIDE * MAX_BOX_PARTS)
+  const seeds = new Float32Array(total)
+  const windowed = new Float32Array(total)
+  const geometry = new THREE.BoxGeometry(1, 1, 1)
+  geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 1))
+  geometry.setAttribute('aWindowed', new THREE.InstancedBufferAttribute(windowed, 1))
+  const material = createFacadeMaterial({ color: 0xffffff, uniforms: facade, variant: lowPower ? 'lite' : 'full' })
+  const boxMesh = createInstancedMesh(geometry, material, total, name)
+  boxMesh.userData.buildingCount = count
+
+  const baseColor = new THREE.Color(config.color)
+  const equipmentColor = new THREE.Color(EQUIPMENT_COLOR)
+  const tint = new THREE.Color()
+  const seedBase = layerIndex * 1000
+  for (let i = 0; i < buildings.length; i++) {
+    const building = buildings[i]
+    const range = ranges[i]
+    if (!building || !range) continue
+    const parts = writeBoxParts(scratch, 0, building, building.archetype, 1)
+    const bodyTint = 0.92 + 0.16 * seeded(seedBase + i + 800)
+    for (let p = 0; p < parts; p++) {
+      const isBody = scratch[p * PART_STRIDE] === PART_KIND_BODY
+      seeds[range.start + p] = seeded(seedBase + i)
+      windowed[range.start + p] = isBody ? 1 : 0
+      boxMesh.setColorAt(range.start + p, isBody ? tint.copy(baseColor).multiplyScalar(bodyTint) : equipmentColor)
+    }
+  }
+  if (boxMesh.instanceColor) boxMesh.instanceColor.needsUpdate = true
+
+  const spireBuildingIndices = buildings.flatMap((building, i) => (building.archetype === 'spire' ? [i] : []))
+  const spireMesh = spireBuildingIndices.length === 0 ? null : createInstancedMesh(
+    new THREE.ConeGeometry(0.5, 1, 5),
+    new THREE.MeshStandardMaterial({ color: EQUIPMENT_COLOR, roughness: 0.7 }),
+    spireBuildingIndices.length, `${name}-spire`)
+  let beaconMesh: BuildingLayer['beaconMesh'] = null
+  if (spireBuildingIndices.length > 0) {
+    const beaconMaterial = new THREE.MeshBasicMaterial({ color: POST_EMISSIVES.beacon.hex })
+    beaconMaterial.name = 'journey-beacon'
+    beaconMaterial.color.multiplyScalar(POST_EMISSIVES.beacon.gain)
+    beaconMesh = createInstancedMesh(new THREE.SphereGeometry(1, 8, 6), beaconMaterial,
+      spireBuildingIndices.length, `${name}-beacon`)
+  }
+
+  return {
+    boxMesh, spireMesh, beaconMesh, buildings, partRanges: ranges, spireBuildingIndices, scratch,
+    lastHeightScale: Number.POSITIVE_INFINITY, lastActiveCount: -1, lastBeaconMask: -1,
+  }
+}
+
+export function layerMeshes(layer: BuildingLayer): THREE.InstancedMesh[] {
+  const meshes: THREE.InstancedMesh[] = [layer.boxMesh]
+  if (layer.spireMesh) meshes.push(layer.spireMesh)
+  if (layer.beaconMesh) meshes.push(layer.beaconMesh)
+  return meshes
+}
+
+// Module-level scratch objects: the per-frame update allocates nothing.
+const matrix = new THREE.Matrix4()
+const position = new THREE.Vector3()
+const scale = new THREE.Vector3()
+const noRotation = new THREE.Quaternion()
+
+function read(array: Float32Array, index: number): number {
+  return array[index] ?? 0
+}
+
+function setPartMatrix(mesh: THREE.InstancedMesh, index: number, scratch: Float32Array, base: number): void {
+  position.set(read(scratch, base + 1), read(scratch, base + 2), read(scratch, base + 3))
+  scale.set(read(scratch, base + 4), read(scratch, base + 5), read(scratch, base + 6))
+  matrix.compose(position, noRotation, scale)
+  mesh.setMatrixAt(index, matrix)
+}
+
+function setHiddenMatrix(mesh: THREE.InstancedMesh, index: number, building: Building): void {
+  position.set(building.x, HIDDEN_Y, building.z)
+  scale.set(0, 0, 0)
+  matrix.compose(position, noRotation, scale)
+  mesh.setMatrixAt(index, matrix)
+}
+
+function isActive(building: Building, index: number, activeCount: number): boolean {
+  return index < activeCount && building.width > 0
+}
+
+function writeBodies(layer: BuildingLayer, heightScale: number, activeCount: number): void {
+  const { buildings, partRanges, scratch, boxMesh, spireMesh, spireBuildingIndices } = layer
+  for (let i = 0; i < buildings.length; i++) {
+    const building = buildings[i]
+    const range = partRanges[i]
+    if (!building || !range) continue
+    if (isActive(building, i, activeCount)) {
+      const written = writeBoxParts(scratch, 0, building, building.archetype, building.baseHeight * heightScale)
+      for (let p = 0; p < written; p++) setPartMatrix(boxMesh, range.start + p, scratch, p * PART_STRIDE)
+    } else {
+      for (let p = 0; p < range.count; p++) setHiddenMatrix(boxMesh, range.start + p, building)
+    }
+  }
+  boxMesh.instanceMatrix.needsUpdate = true
+  if (!spireMesh) return
+  for (let k = 0; k < spireBuildingIndices.length; k++) {
+    const index = spireBuildingIndices[k] ?? 0
+    const building = buildings[index]
+    if (!building) continue
+    if (isActive(building, index, activeCount)) {
+      writeSpirePart(scratch, 0, building, building.baseHeight * heightScale, building.spireLength)
+      setPartMatrix(spireMesh, k, scratch, 0)
+    } else {
+      setHiddenMatrix(spireMesh, k, building)
+    }
+  }
+  spireMesh.instanceMatrix.needsUpdate = true
+}
+
+// Bit k is set when the k-th beacon is shown: its building is active and its blink is on.
+function beaconMask(layer: BuildingLayer, activeCount: number, time: number, steady: boolean): number {
+  let mask = 0
+  for (let k = 0; k < layer.spireBuildingIndices.length; k++) {
+    const index = layer.spireBuildingIndices[k] ?? 0
+    const building = layer.buildings[index]
+    if (building && isActive(building, index, activeCount) && beaconIsOn(building.blinkPhase, time, steady)) {
+      mask |= 1 << k
+    }
+  }
+  return mask
+}
+
+function writeBeacons(layer: BuildingLayer, heightScale: number, mask: number): void {
+  const { beaconMesh, buildings, scratch, spireBuildingIndices } = layer
+  if (!beaconMesh) return
+  for (let k = 0; k < spireBuildingIndices.length; k++) {
+    const building = buildings[spireBuildingIndices[k] ?? 0]
+    if (!building) continue
+    writeBeaconPart(scratch, 0, building, building.baseHeight * heightScale, building.spireLength, (mask & (1 << k)) !== 0)
+    setPartMatrix(beaconMesh, k, scratch, 0)
+  }
+  beaconMesh.instanceMatrix.needsUpdate = true
+}
+
+// Scales each building's height by `heightScale` and hides buildings beyond
+// `density * count`, so a rising density reads as the skyline filling in rather
+// than buildings fading to transparent. A building with `width === 0` (no clear
+// spot found for it) always stays hidden. Matrices are rewritten only when the
+// height moved by 1e-4 or more or the integer active count changed; beacons also
+// rewrite when their on/off state changes. `dampState` converges asymptotically,
+// so once a chapter settles this is a no-op.
+export function applyBuildingState(
+  layer: BuildingLayer, heightScale: number, density: number, time: number, steadyBeacon: boolean,
+): void {
+  const total = layer.buildings.length
+  const activeCount = Math.min(total, Math.max(0, Math.round(density * total)))
+  const moved = !(Math.abs(heightScale - layer.lastHeightScale) < HEIGHT_EPSILON)
+    || activeCount !== layer.lastActiveCount
+  if (moved) {
+    writeBodies(layer, heightScale, activeCount)
+    layer.lastHeightScale = heightScale
+    layer.lastActiveCount = activeCount
+  }
+  const mask = beaconMask(layer, activeCount, time, steadyBeacon)
+  if (moved || mask !== layer.lastBeaconMask) {
+    writeBeacons(layer, layer.lastHeightScale, mask)
+    layer.lastBeaconMask = mask
+  }
 }

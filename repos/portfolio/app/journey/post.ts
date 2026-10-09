@@ -11,6 +11,8 @@ export const TONE_MAPPING = THREE.NeutralToneMapping
 export const POST_EMISSIVES = {
   lamp: { hex: 0xffdca8, gain: 2.8 },
   courtyard: { hex: 0xffe1a8, gain: 2.7 },
+  // Linear luminance of 0xff2a20 is 0.230, so gain 9.2 gives 2.12 before fog.
+  beacon: { hex: 0xff2a20, gain: 9.2 },
 } as const
 
 const BLOOM_MIN_STRENGTH = 0.01
