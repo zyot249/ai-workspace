@@ -5,6 +5,7 @@ import { breakRestoredComponent, componentResourceCounts, componentStatus, mount
 import './post-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 import { measureRenderCost } from './render-cost'
+import { probeWindows } from './windows-probe'
 
 let journey: JourneyScene | null = null
 let renderer: THREE.WebGLRenderer | null = null
@@ -27,6 +28,7 @@ function currentDiagnostics() {
 
 const cityGpu = {
   probeFacade,
+  probeWindows,
   mountComponent,
   breakRestoredComponent,
   componentStatus,

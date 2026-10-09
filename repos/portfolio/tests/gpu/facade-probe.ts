@@ -10,7 +10,8 @@ export function probeFacade(options: {
   const geometry = new THREE.BoxGeometry(1, 1, 1)
   geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(new Float32Array([0.375]), 1))
   const material = createFacadeMaterial({ color: 0x505050, variant: options.variant,
-    uniforms: { uLit: { value: options.lit }, uSkyTint: { value: new THREE.Color(0x6688aa) } } })
+    uniforms: { uLit: { value: options.lit }, uSkyTint: { value: new THREE.Color(0x6688aa) },
+      uTime: { value: 0 }, uFlicker: { value: 0 }, uEmissiveScale: { value: 1 } } })
   try {
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0)
