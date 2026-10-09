@@ -102,3 +102,14 @@ it('splices the gradient into both variants, and the rim and bounce into full on
   expect(patched('full', 0, 1).m.customProgramCacheKey()).not.toBe(patched('full', 0, 2).m.customProgramCacheKey())
   expect(full.shader.fragmentShader).toContain('FACADE_DEBUG_AO')
 })
+
+it('wires the gradient uniforms and the shadow field into the scene', () => {
+  const scene = readFileSync(new URL('../../app/journey/scene.ts', import.meta.url), 'utf8')
+  expect(scene).toContain('facadeLookFor(state, sky.sunVisibility)')
+  expect(scene).toContain('facade.uSunDir.value.copy(sky.sunDirection)')
+  expect(scene).toContain('writeLayerShadows(shadows')
+  expect(scene).toContain('shadows.commit()')
+  expect(scene).toContain('centerLine.renderOrder = ROAD_MARKING_RENDER_ORDER')
+  // The rim reads the unclamped sun direction, never the moonlight-clamped light position.
+  expect(scene).not.toContain('uSunDir.value.copy(sun.position')
+})

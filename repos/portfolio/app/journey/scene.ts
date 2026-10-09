@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { BASE_FOV, fovForAspect } from './camera'
+import { createContactShadowField, ROAD_MARKING_RENDER_ORDER, writeLayerShadows } from './contact-shadows'
+import { facadeLookFor } from './facade-gradient'
 import { applyBuildingState, type BuildingLayer, createBuildingLayer, LAYERS, layerMeshes } from './buildings'
 import { createFacadeUniforms } from './facade-material'
 import { CORNER_BLOCKS } from './footprints'
@@ -96,6 +98,7 @@ function createRoad(): THREE.Group {
 
     const centerLine = new THREE.Mesh(new THREE.PlaneGeometry(0.08, segment.length), lineMaterial)
     flattenAndHeadPlane(centerLine, segment.dirX, segment.dirZ)
+    centerLine.renderOrder = ROAD_MARKING_RENDER_ORDER
     centerLine.position.set(midX, -0.99, midZ)
     group.add(centerLine)
   }
@@ -446,6 +449,14 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     layers.push(layer)
     scene.add(...layerMeshes(layer))
   }
+  const shadowOffsets: number[] = []
+  let shadowTotal = 0
+  for (const layer of layers) {
+    shadowOffsets.push(shadowTotal)
+    shadowTotal += layer.buildings.length
+  }
+  const shadows = createContactShadowField(shadowTotal)
+  scene.add(shadows.mesh)
 
   scene.add(createGround())
   scene.add(createRoad())
@@ -510,7 +521,12 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     sun.position.set(...light.position)
     facade.uLit.value = state.windowLitRatio
     facade.uSkyTint.value.setRGB(...state.skyColor, THREE.SRGBColorSpace)
-    for (const layer of layers) applyBuildingState(layer, state.buildingHeight, state.buildingDensity, lastTime, tier === 'reduced')
+    layers.forEach((layer, i) => {
+      if (applyBuildingState(layer, state.buildingHeight, state.buildingDensity, lastTime, tier === 'reduced')) {
+        writeLayerShadows(shadows, shadowOffsets[i] ?? 0, layer)
+      }
+    })
+    shadows.commit()
     if (stars) stars.material.opacity = state.starOpacity
     farSkyline.update(state.fogColor)
 
@@ -527,6 +543,12 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     lookAt.set(lookPoint.x, state.lookHeight, lookPoint.z)
     camera.lookAt(lookAt)
     sky.update(state, camera.position, lastTime)
+    const gradient = facadeLookFor(state, sky.sunVisibility)
+    facade.uAoStrength.value = gradient.uAoStrength
+    facade.uRimStrength.value = gradient.uRimStrength
+    facade.uBounce.value = gradient.uBounce
+    facade.uSunDir.value.copy(sky.sunDirection)
+    facade.uSunColor.value.copy(sun.color)
     options.onStateApplied?.(state)
   }
 
