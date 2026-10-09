@@ -47,3 +47,12 @@ export function createShaderErrorRecorder(renderer: THREE.WebGLRenderer): Shader
   recorders.set(renderer, recorder)
   return recorder
 }
+
+// GLSL float literal: integers keep a ".0", others use 12 significant digits.
+export function glslFloat(n: number): string {
+  return Number.isInteger(n) ? `${n}.0` : n.toPrecision(12)
+}
+
+export function glslVec3(rgb: readonly number[]): string {
+  return `vec3(${rgb.map(glslFloat).join(', ')})`
+}
