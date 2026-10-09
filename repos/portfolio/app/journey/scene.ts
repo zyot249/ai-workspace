@@ -6,6 +6,8 @@ import { clearsPath, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegm
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { seeded } from './random'
+import { CAMERA_FAR, createSky, lightFromStop } from './sky'
+import { createFarSkyline, createGround } from './skyline-far'
 import { createShaderErrorRecorder } from './shader-utils'
 import { targetFor } from './target'
 import { createThemeController } from './theme-blend'
@@ -33,6 +35,11 @@ export interface JourneySceneOptions {
 
 const DAMPING = 0.08
 const STAR_COUNT = 800
+export const STARS_NAME = 'journey-stars'
+// After the dome (-1000) and before the haze (-900). The dome writes no depth,
+// so stars inside it stay visible. Stars sit within about 110 units of any
+// camera, inside the dome radius of 200.
+const STARS_RENDER_ORDER = -999
 const ROAD_HALF_WIDTH = 3
 const ROAD_CLEARANCE = ROAD_HALF_WIDTH + 0.3
 const BUILDING_CLEARANCE = 3.3
@@ -196,24 +203,10 @@ function createStars(): THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   const material = new THREE.PointsMaterial({ size: 0.025, color: 0xffffff, transparent: true, opacity: 0, fog: false })
-  return new THREE.Points(geometry, material)
-}
-
-function createGround(): THREE.Mesh {
-  // One large plane under the whole bent path, rather than following each
-  // segment, since the path's bounding box is simple and this avoids gaps at
-  // the turns.
-  const minX = Math.min(...WAYPOINTS.map(w => w.x)) - 40
-  const maxX = Math.max(...WAYPOINTS.map(w => w.x)) + 40
-  const minZ = Math.min(...WAYPOINTS.map(w => w.z)) - 10
-  const maxZ = Math.max(...WAYPOINTS.map(w => w.z)) + 10
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(maxX - minX, maxZ - minZ),
-    new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 1 }),
-  )
-  ground.rotation.x = -Math.PI / 2
-  ground.position.set((minX + maxX) / 2, -1.01, (minZ + maxZ) / 2)
-  return ground
+  const stars = new THREE.Points(geometry, material)
+  stars.name = STARS_NAME
+  stars.renderOrder = STARS_RENDER_ORDER
+  return stars
 }
 
 // Lays a plane flat (facing up) and turns it to face (dirX, dirZ) along its
@@ -545,7 +538,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: !lowPower })
   const recorder = createShaderErrorRecorder(renderer)
   const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 120)
+  const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, CAMERA_FAR)
   const facade: FacadeUniforms = {
     uLit: { value: 0 }, uSkyTint: { value: new THREE.Color() },
     uTime: { value: 0 }, uFlicker: { value: tier === 'reduced' ? 0 : 1 }, uEmissiveScale: { value: 1 },
@@ -584,8 +577,10 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
 
   // The scene renders its own sky (day-to-night arc), so the canvas is opaque here
   // rather than showing the page background through. Text sits on translucent panels.
-  const sky = new THREE.Color(0xbfdbfe)
-  scene.background = sky
+  // The dome covers the background. The background stays at the horizon colour
+  // as a fallback in case the dome does not draw.
+  const horizonFallback = new THREE.Color(0xbfdbfe)
+  scene.background = horizonFallback
   const fog = new THREE.FogExp2(0xbfdbfe, 0.02)
   scene.fog = fog
 
@@ -607,6 +602,9 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
 
   const stars = !lowPower ? createStars() : null
   if (stars) scene.add(stars)
+  const sky = createSky(lowPower ? 'lite' : 'full', tier === 'reduced')
+  const farSkyline = createFarSkyline(lowPower)
+  scene.add(sky.mesh, ...farSkyline.objects)
 
   const hemi = new THREE.HemisphereLight(0xbfdbfe, 0x1a1a1f, 0.9)
   const sun = new THREE.DirectionalLight(0xffffff, 0.8)
@@ -637,30 +635,28 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   applyWindowLook(current, 0)
 
   function apply(state: StopState) {
-    // The composer tone-maps the whole frame, so sky and fog stay authored. The
-    // direct path tone-maps only object pixels, so map sky and fog on the CPU.
+    // The composer tone-maps the whole frame, so fog stays authored. The direct
+    // path tone-maps only object pixels, so map fog and the fallback background
+    // on the CPU. The dome and far skyline tone-map themselves, so they always
+    // take the authored colours.
     if (post) post.setLook(state.exposure, state.bloomStrength)
     else renderer.toneMappingExposure = state.exposure
-    const skyRgb = post ? state.skyColor : skyForDirectPipeline(state.skyColor, state.exposure)
     const fogRgb = post ? state.fogColor : skyForDirectPipeline(state.fogColor, state.exposure)
-    sky.setRGB(skyRgb[0], skyRgb[1], skyRgb[2], THREE.SRGBColorSpace)
+    horizonFallback.setRGB(fogRgb[0], fogRgb[1], fogRgb[2], THREE.SRGBColorSpace)
     fog.color.setRGB(fogRgb[0], fogRgb[1], fogRgb[2], THREE.SRGBColorSpace)
     fog.density = state.fogDensity
     hemi.color.setRGB(...state.skyZenith, THREE.SRGBColorSpace)
       .lerp(hemiMid.setRGB(...state.skyColor, THREE.SRGBColorSpace), 0.5)
     hemi.intensity = state.hemiIntensity
+    const light = lightFromStop(state)
     sun.color.setRGB(...state.sunColor, THREE.SRGBColorSpace)
-    sun.intensity = Math.max(0.25, THREE.MathUtils.smoothstep(state.sunElevation, -6, 12))
-    const elevation = THREE.MathUtils.degToRad(state.sunElevation)
-    const azimuth = THREE.MathUtils.degToRad(state.sunAzimuth)
-    // Azimuth 0 points toward -Z and positive angles turn toward -X; the
-    // height clamp keeps a below-horizon sun acting as moonlight.
-    sun.position.set(-Math.sin(azimuth) * Math.cos(elevation) * 10,
-      Math.max(2, Math.sin(elevation) * 10), -Math.cos(azimuth) * Math.cos(elevation) * 10)
+    sun.intensity = light.intensity
+    sun.position.set(...light.position)
     facade.uLit.value = state.windowLitRatio
     facade.uSkyTint.value.setRGB(...state.skyColor, THREE.SRGBColorSpace)
     for (const layer of layers) applyBuildingState(layer, state.buildingHeight, state.buildingDensity)
     if (stars) stars.material.opacity = state.starOpacity
+    farSkyline.update(state.fogColor)
 
     // Camera position/lookAt are driven by distance along the bent path, not
     // raw x/z, so interpolating between two stops follows the turns instead
@@ -674,6 +670,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     )
     lookAt.set(lookPoint.x, state.lookHeight, lookPoint.z)
     camera.lookAt(lookAt)
+    sky.update(state, camera.position, lastTime)
     options.onStateApplied?.(state)
   }
 

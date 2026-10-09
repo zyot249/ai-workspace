@@ -11,18 +11,19 @@ let previousObserver: Window['__cityGpuRendererObserver']
 let componentDark = ref(false)
 let previousThemeObserver: Window['__cityGpuThemeObserver']
 let themeCalls: { isDark: boolean; animate: boolean | undefined }[] = []
-let creationFault: 'glsl' | 'missing-marker' | null = null
+type ShaderFault = 'glsl' | 'missing-marker'
+let creationFault: { fault: ShaderFault; prefix: string } | null = null
 let unavailable = 0
 let disposed = 0
 let updatesAfterFailure = 0
 const observed = new Map<{ dispose(): void }, number>()
 
-function breakFacadeShader(scene: THREE.Scene, fault: 'glsl' | 'missing-marker' = 'glsl') {
+function breakFacadeShader(scene: THREE.Scene, fault: ShaderFault = 'glsl', prefix = 'journey-facade-') {
   scene.traverse(object => {
     if (!(object instanceof THREE.Mesh)) return
     const materials = Array.isArray(object.material) ? object.material : [object.material]
     for (const material of materials) {
-      if (!material.name.startsWith('journey-facade-')) continue
+      if (!material.name.startsWith(prefix)) continue
       const originalCompile = material.onBeforeCompile.bind(material)
       material.onBeforeCompile = (shader, renderer) => {
         if (fault === 'missing-marker') shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', '')
@@ -55,13 +56,16 @@ function observeSceneResources(scene: THREE.Scene) {
   })
 }
 
-export async function mountComponent(options: { failure: 'none' | 'creation' | 'missing-marker'; beforeMount?: () => void; chapter?: number; initialDark?: boolean }): Promise<void> {
+export async function mountComponent(options: { failure: 'none' | 'creation' | 'missing-marker' | 'sky-creation'; beforeMount?: () => void; chapter?: number; initialDark?: boolean }): Promise<void> {
   unmountComponent()
   unavailable = 0
   disposed = 0
   updatesAfterFailure = 0
   observed.clear()
-  creationFault = options.failure === 'creation' ? 'glsl' : options.failure === 'missing-marker' ? 'missing-marker' : null
+  creationFault = options.failure === 'creation' ? { fault: 'glsl', prefix: 'journey-facade-' }
+    : options.failure === 'missing-marker' ? { fault: 'missing-marker', prefix: 'journey-facade-' }
+      : options.failure === 'sky-creation' ? { fault: 'glsl', prefix: 'journey-sky' }
+        : null
   componentDark = ref(options.initialDark ?? false)
   themeCalls = []
   previousThemeObserver = window.__cityGpuThemeObserver
@@ -82,9 +86,9 @@ export async function mountComponent(options: { failure: 'none' | 'creation' | '
       observeSceneResources(scene as THREE.Scene)
       capturedScene = scene as THREE.Scene
       if (creationFault) {
-        const fault = creationFault
+        const { fault, prefix } = creationFault
         creationFault = null
-        breakFacadeShader(capturedScene, fault)
+        breakFacadeShader(capturedScene, fault, prefix)
       }
       originalRender(scene, camera)
     }

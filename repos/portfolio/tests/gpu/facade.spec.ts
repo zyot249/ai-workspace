@@ -56,7 +56,8 @@ for (const [tier, lowPower] of [
     expect(result.planeBatchCount).toBe(0)
     // Parent be4b857 at 640x360, one exhibit: full 58/26/15 and lite 57/25/14 calls.
     // Reduced desktop adds one static star draw while the old reduced path omitted it.
-    const expectedCalls = lowPower ? [56, 24, 13] : [57, 25, 14]
+    // City 05 adds four backdrop draws on every tier: dome, haze and two far rings.
+    const expectedCalls = lowPower ? [60, 28, 17] : [61, 29, 18]
     expect([result.frames[0]!.calls, result.frames[2]!.calls, result.frames[3]!.calls]).toEqual(expectedCalls)
     for (const layer of result.layers) {
       expect(layer.seedCount).toBe(layer.count)
