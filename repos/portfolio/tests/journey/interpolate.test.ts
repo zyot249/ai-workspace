@@ -1,49 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { CHAPTER_IDS, STOPS, hexToRgb, type StopState } from '../../app/journey/stops'
-import { clamp01, damp, dampState, easeInOut, lerp, lerpStop } from '../../app/journey/interpolate'
-
-function state(stop: StopState): StopState {
-  const { cameraDistance, cameraHeight, lookAheadDistance, lookHeight, skyColor, fogColor, fogDensity, buildingDensity, buildingHeight, windowLitRatio, exposure, bloomStrength } = stop
-  return { cameraDistance, cameraHeight, lookAheadDistance, lookHeight, skyColor, fogColor, fogDensity, buildingDensity, buildingHeight, windowLitRatio, exposure, bloomStrength }
-}
-
-const [intro, projects] = STOPS
-if (!intro || !projects) throw new Error('STOPS must have at least two entries')
-
-describe('STOPS', () => {
-  it('has one stop per chapter, in chapter order', () => {
-    expect(STOPS.map(s => s.id)).toEqual([...CHAPTER_IDS])
-    expect(STOPS).toHaveLength(4)
-  })
-
-  it('uses color components between 0 and 1 and non-negative motion values', () => {
-    for (const stop of STOPS) {
-      for (const c of [...stop.skyColor, ...stop.fogColor]) {
-        expect(c).toBeGreaterThanOrEqual(0)
-        expect(c).toBeLessThanOrEqual(1)
-      }
-      expect(stop.fogDensity).toBeGreaterThanOrEqual(0)
-      expect(stop.buildingDensity).toBeGreaterThanOrEqual(0)
-      expect(stop.buildingDensity).toBeLessThanOrEqual(1)
-      expect(stop.buildingHeight).toBeGreaterThan(0)
-      expect(stop.windowLitRatio).toBeGreaterThanOrEqual(0)
-      expect(stop.windowLitRatio).toBeLessThanOrEqual(1)
-    }
-  })
-
-  it('progresses from day to night across the chapters', () => {
-    const [introStop, , , aboutStop] = STOPS
-    if (!introStop || !aboutStop) throw new Error('STOPS must have intro and about entries')
-    expect(aboutStop.windowLitRatio).toBeGreaterThan(introStop.windowLitRatio)
-    expect(aboutStop.fogDensity).toBeGreaterThan(introStop.fogDensity)
-  })
-})
-
-describe('hexToRgb', () => {
-  it('converts a hex color to 0..1 components', () => {
-    expect(hexToRgb('#ff8000')).toEqual([1, 128 / 255, 0])
-  })
-})
+import { CHAPTER_IDS, LOOKS, PATH_STOPS } from '../../app/journey/stops'
+import { clamp01, damp, dampState, easeInOut, lerp, lerpAngle, lerpLook, lerpPath } from '../../app/journey/interpolate'
 
 describe('clamp01', () => {
   it('clamps below 0 and above 1', () => {
@@ -73,24 +30,6 @@ describe('lerp', () => {
   })
 })
 
-describe('lerpStop', () => {
-  it('returns the first stop at 0 and the second at 1', () => {
-    expect(lerpStop(intro, projects, 0)).toEqual(state(intro))
-    expect(lerpStop(intro, projects, 1)).toEqual(state(projects))
-  })
-
-  it('returns midpoints at 0.5', () => {
-    const mid = lerpStop(intro, projects, 0.5)
-    expect(mid.cameraDistance).toBeCloseTo((intro.cameraDistance + projects.cameraDistance) / 2)
-    expect(mid.buildingDensity).toBeCloseTo((intro.buildingDensity + projects.buildingDensity) / 2)
-    expect(mid.fogColor[2]).toBeCloseTo((intro.fogColor[2] + projects.fogColor[2]) / 2)
-  })
-
-  it('does not include the chapter id', () => {
-    expect(lerpStop(intro, projects, 0.5)).not.toHaveProperty('id')
-  })
-})
-
 describe('damp', () => {
   it('moves a fraction of the way to the target', () => {
     expect(damp(0, 10, 0.5)).toBe(5)
@@ -103,23 +42,39 @@ describe('damp', () => {
   })
 })
 
-describe('dampState', () => {
-  it('reaches the target with factor 1', () => {
-    expect(dampState(state(intro), state(projects), 1)).toEqual(state(projects))
-  })
-})
-
-it('interpolates exposure and bloom at all required points', () => {
-  expect(STOPS.map(s => [s.exposure, s.bloomStrength])).toEqual([
-    [1, 0], [1, 0.12], [1.1, 0.28], [1.25, 0.42],
-  ])
-  for (let i = 0; i < STOPS.length - 1; i++) {
-    const a = STOPS[i]!, b = STOPS[i + 1]!
-    for (const p of [0, 0.5, 1]) {
-      const got = lerpStop(a, b, p)
-      expect(got.exposure).toBeCloseTo(a.exposure * (1 - p) + b.exposure * p, 12)
-      expect(got.bloomStrength).toBeCloseTo(a.bloomStrength * (1 - p) + b.bloomStrength * p, 12)
+it('interpolates every named path and look field', () => {
+  for (let i = 0; i < CHAPTER_IDS.length - 1; i++) {
+    const aId = CHAPTER_IDS[i]!, bId = CHAPTER_IDS[i + 1]!
+    for (const theme of ['light', 'dark'] as const) for (const p of [0, .5, 1]) {
+      const a = LOOKS[theme][aId], b = LOOKS[theme][bId]
+      const out = lerpLook(a, b, p)
+      expect(Object.keys(out).sort()).toEqual(Object.keys(a).sort())
+      for (const key of Object.keys(a) as (keyof typeof a)[]) {
+        const av = a[key], bv = b[key], actual = out[key]
+        if (Array.isArray(av)) {
+          expect(actual).toEqual(av.map((v, j) => v * (1 - p) + (bv as readonly number[])[j]! * p))
+        } else expect(actual).toBeCloseTo(key === 'sunAzimuth'
+          ? lerpAngle(av as number, bv as number, p) : (av as number) * (1 - p) + (bv as number) * p, 12)
+      }
+      if (p === 0) expect(out).toEqual(a)
+      if (p === 1) expect(out).toEqual(b)
+      const pa = PATH_STOPS[aId], pb = PATH_STOPS[bId], path = lerpPath(pa, pb, p)
+      expect(Object.keys(path).sort()).toEqual(Object.keys(pa).sort())
+      for (const key of Object.keys(pa) as (keyof typeof pa)[])
+        expect(path[key]).toBeCloseTo(pa[key] * (1 - p) + pb[key] * p, 12)
+      if (p === 0) expect(path).toEqual(pa)
+      if (p === 1) expect(path).toEqual(pb)
+      const sa = { ...pa, ...a }, sb = { ...pb, ...b }
+      expect(dampState(sa, sb, 1)).toEqual(sb)
     }
   }
-  expect(dampState(STOPS[0]!, STOPS[3]!, 1).exposure).toBe(1.25)
+})
+it('takes the shortest angle and normalizes it', () => {
+  expect(lerpAngle(170, -170, .5)).toBe(-180)
+  expect(lerpAngle(-60, 30, .5)).toBe(-15)
+  for (const a of [-540, -180, 170, 540]) for (const b of [-540, -170, 180, 540])
+    for (const p of [0, .25, .5, .75, 1]) {
+      const angle = lerpAngle(a, b, p)
+      expect(angle).toBeGreaterThanOrEqual(-180); expect(angle).toBeLessThan(180)
+    }
 })

@@ -2,28 +2,6 @@ export type Vec3 = readonly [number, number, number]
 
 export type ChapterId = 'intro' | 'projects' | 'skills' | 'about'
 
-export interface StopState {
-  // Camera position/target are expressed as distance along the journey's
-  // path (see `journey/path.ts`) rather than raw x/z, so interpolating
-  // between two stops follows the path's turns instead of a straight line.
-  cameraDistance: number
-  cameraHeight: number
-  lookAheadDistance: number
-  lookHeight: number
-  skyColor: Vec3
-  fogColor: Vec3
-  fogDensity: number
-  buildingDensity: number
-  buildingHeight: number
-  windowLitRatio: number
-  exposure: number
-  bloomStrength: number
-}
-
-export interface Stop extends StopState {
-  id: ChapterId
-}
-
 export const CHAPTER_IDS: readonly ChapterId[] = ['intro', 'projects', 'skills', 'about']
 
 export function hexToRgb(hex: string): Vec3 {
@@ -31,74 +9,81 @@ export function hexToRgb(hex: string): Vec3 {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 }
 
+export type Theme = 'light' | 'dark'
+export interface PathState {
+  cameraDistance: number
+  cameraHeight: number
+  lookAheadDistance: number
+  lookHeight: number
+  buildingDensity: number
+  buildingHeight: number
+}
+export interface LookState {
+  skyZenith: Vec3
+  skyColor: Vec3
+  fogColor: Vec3
+  fogDensity: number
+  sunElevation: number
+  sunAzimuth: number
+  sunColor: Vec3
+  sunGlow: number
+  cloudCover: number
+  cloudLitColor: Vec3
+  cloudShadeColor: Vec3
+  hemiIntensity: number
+  starOpacity: number
+  windowLitRatio: number
+  exposure: number
+  bloomStrength: number
+}
+export type StopState = PathState & LookState
 // The journey passes four places, in order: entrance gate, exhibition hall,
 // market square, home courtyard (see `PLACES`/`WAYPOINTS` in journey/path.ts).
-// The path bends twice (hall -> market turns 90 degrees, market -> courtyard
-// turns back). `cameraDistance` is how far along that path the camera sits
-// for each stop; `lookAheadDistance` is how much further along it looks. A
-// day-to-night arc runs alongside: intro is daylight, about is full night.
-export const STOPS: readonly Stop[] = [
-  {
-    id: 'intro',
-    cameraDistance: 0,
-    cameraHeight: 0.2,
-    lookAheadDistance: 8,
-    lookHeight: 0,
-    skyColor: hexToRgb('#bfdbfe'),
-    fogColor: hexToRgb('#e0e7ff'),
-    fogDensity: 0.045,
-    buildingDensity: 0.35,
-    buildingHeight: 0.6,
-    windowLitRatio: 0.05,
-    exposure: 1,
-    bloomStrength: 0,
+// `cameraDistance` is how far along that path the camera sits for each stop;
+// `lookAheadDistance` is how much further along it looks. `PATH_STOPS` is
+// theme-independent; `LOOKS` holds the light (morning to afternoon) and dark
+// (sunset to night) arcs.
+export const PATH_STOPS: Readonly<Record<ChapterId, PathState>> = {
+  intro: { cameraDistance: 0, cameraHeight: .2, lookAheadDistance: 8, lookHeight: 0, buildingDensity: .35, buildingHeight: .6 },
+  projects: { cameraDistance: 8, cameraHeight: .6, lookAheadDistance: 8, lookHeight: .3, buildingDensity: .6, buildingHeight: .85 },
+  skills: { cameraDistance: 40, cameraHeight: .8, lookAheadDistance: 9, lookHeight: .4, buildingDensity: .85, buildingHeight: 1.15 },
+  about: { cameraDistance: 72, cameraHeight: .3, lookAheadDistance: 9, lookHeight: .2, buildingDensity: 1, buildingHeight: 1 },
+}
+export const LOOKS: Readonly<Record<Theme, Readonly<Record<ChapterId, LookState>>>> = {
+  light: {
+    intro: { skyZenith: hexToRgb('#4f86d6'), skyColor: hexToRgb('#9cc3ee'), fogColor: hexToRgb('#dce8f6'), fogDensity: .04,
+      sunElevation: 12, sunAzimuth: -60, sunColor: hexToRgb('#ffe7c4'), sunGlow: .35, cloudCover: .55,
+      cloudLitColor: hexToRgb('#ffffff'), cloudShadeColor: hexToRgb('#b8c6dc'), hemiIntensity: .9, starOpacity: 0,
+      windowLitRatio: .05, exposure: 1, bloomStrength: 0 },
+    projects: { skyZenith: hexToRgb('#3b78d4'), skyColor: hexToRgb('#8bbbf0'), fogColor: hexToRgb('#d4e5f7'), fogDensity: .035,
+      sunElevation: 25, sunAzimuth: -40, sunColor: hexToRgb('#fff1dc'), sunGlow: .25, cloudCover: .65,
+      cloudLitColor: hexToRgb('#ffffff'), cloudShadeColor: hexToRgb('#aebfd8'), hemiIntensity: .9, starOpacity: 0,
+      windowLitRatio: .03, exposure: 1, bloomStrength: 0 },
+    skills: { skyZenith: hexToRgb('#2f6bcf'), skyColor: hexToRgb('#7fb2ee'), fogColor: hexToRgb('#cfe1f5'), fogDensity: .035,
+      sunElevation: 55, sunAzimuth: -10, sunColor: hexToRgb('#fffaf0'), sunGlow: .15, cloudCover: .6,
+      cloudLitColor: hexToRgb('#ffffff'), cloudShadeColor: hexToRgb('#b3c3da'), hemiIntensity: .9, starOpacity: 0,
+      windowLitRatio: .02, exposure: 1, bloomStrength: 0 },
+    about: { skyZenith: hexToRgb('#3c72c4'), skyColor: hexToRgb('#95bbe4'), fogColor: hexToRgb('#e6e4df'), fogDensity: .04,
+      sunElevation: 28, sunAzimuth: 30, sunColor: hexToRgb('#ffe9c7'), sunGlow: .3, cloudCover: .5,
+      cloudLitColor: hexToRgb('#ffffff'), cloudShadeColor: hexToRgb('#bcbcc8'), hemiIntensity: .9, starOpacity: 0,
+      windowLitRatio: .05, exposure: 1, bloomStrength: 0 },
   },
-  {
-    id: 'projects',
-    // Pulled back to distance 8 (world z 0), so the first hall bays (world z
-    // around -5.75 and -9.25 — see `hallFrameSlots` in scene.ts) are ahead of
-    // the camera and inside the horizontal FOV, not behind or off to the side.
-    cameraDistance: 8,
-    cameraHeight: 0.6,
-    lookAheadDistance: 8,
-    lookHeight: 0.3,
-    skyColor: hexToRgb('#fbbf9f'),
-    fogColor: hexToRgb('#f3a683'),
-    fogDensity: 0.05,
-    buildingDensity: 0.6,
-    buildingHeight: 0.85,
-    windowLitRatio: 0.3,
-    exposure: 1,
-    bloomStrength: 0.12,
+  dark: {
+    intro: { skyZenith: hexToRgb('#6f7fb8'), skyColor: hexToRgb('#fbbf9f'), fogColor: hexToRgb('#f3a683'), fogDensity: .05,
+      sunElevation: 4, sunAzimuth: 5, sunColor: hexToRgb('#ffb27a'), sunGlow: .85, cloudCover: .45,
+      cloudLitColor: hexToRgb('#ffc29a'), cloudShadeColor: hexToRgb('#7a6a8f'), hemiIntensity: .7, starOpacity: 0,
+      windowLitRatio: .3, exposure: 1, bloomStrength: .12 },
+    projects: { skyZenith: hexToRgb('#2e2a5c'), skyColor: hexToRgb('#7c6aa8'), fogColor: hexToRgb('#6b5b95'), fogDensity: .05,
+      sunElevation: -3, sunAzimuth: 10, sunColor: hexToRgb('#c97aa8'), sunGlow: .45, cloudCover: .4,
+      cloudLitColor: hexToRgb('#d79ab8'), cloudShadeColor: hexToRgb('#3d3560'), hemiIntensity: .6, starOpacity: .3,
+      windowLitRatio: .55, exposure: 1.1, bloomStrength: .25 },
+    skills: { skyZenith: hexToRgb('#151834'), skyColor: hexToRgb('#3a3768'), fogColor: hexToRgb('#2e2a52'), fogDensity: .055,
+      sunElevation: -12, sunAzimuth: 10, sunColor: hexToRgb('#8a86c4'), sunGlow: .15, cloudCover: .3,
+      cloudLitColor: hexToRgb('#5d5a8a'), cloudShadeColor: hexToRgb('#1f1e3a'), hemiIntensity: .55, starOpacity: .7,
+      windowLitRatio: .75, exposure: 1.15, bloomStrength: .35 },
+    about: { skyZenith: hexToRgb('#0a0d22'), skyColor: hexToRgb('#1e2340'), fogColor: hexToRgb('#141833'), fogDensity: .065,
+      sunElevation: -22, sunAzimuth: 10, sunColor: hexToRgb('#7a8cc4'), sunGlow: 0, cloudCover: .25,
+      cloudLitColor: hexToRgb('#3a4266'), cloudShadeColor: hexToRgb('#12152a'), hemiIntensity: .5, starOpacity: 1,
+      windowLitRatio: .9, exposure: 1.25, bloomStrength: .42 },
   },
-  {
-    id: 'skills',
-    cameraDistance: 40,
-    cameraHeight: 0.8,
-    lookAheadDistance: 9,
-    lookHeight: 0.4,
-    skyColor: hexToRgb('#7c6aa8'),
-    fogColor: hexToRgb('#6b5b95'),
-    fogDensity: 0.05,
-    buildingDensity: 0.85,
-    buildingHeight: 1.15,
-    windowLitRatio: 0.65,
-    exposure: 1.1,
-    bloomStrength: 0.28,
-  },
-  {
-    id: 'about',
-    cameraDistance: 72,
-    cameraHeight: 0.3,
-    lookAheadDistance: 9,
-    lookHeight: 0.2,
-    skyColor: hexToRgb('#1e2340'),
-    fogColor: hexToRgb('#141833'),
-    fogDensity: 0.065,
-    buildingDensity: 1,
-    buildingHeight: 1,
-    windowLitRatio: 0.9,
-    exposure: 1.25,
-    bloomStrength: 0.42,
-  },
-]
+}

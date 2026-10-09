@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
-import { STOPS } from '../../app/journey/stops'
+import { CHAPTER_IDS, LOOKS } from '../../app/journey/stops'
+import { easeInOut, lerpLook } from '../../app/journey/interpolate'
 import {
   WINDOW, WINDOW_PALETTE, windowLitAmount, windowLookFor, windowHashes,
   windowClass, hash11, hash13, linearLuminance, gainFor, flickerMultiplier,
@@ -50,13 +51,27 @@ it('is monotonic, continuous and reverses symmetrically', () => {
   expect(windowLitAmount(.2,.4,-.5)).toBe(0)
   expect(windowLitAmount(.2,.4,1.5)).toBe(1)
 })
-it('maps actual stops, long-running time, and both reduced variants', () => {
-  const targets=[.39,.96,1,1]
-  for (const [i,s] of STOPS.entries()) for(const tier of ['full','lite','reduced'] as const) {
-    const look=windowLookFor(s,1234.125,tier)
-    expect(Math.abs(look.uEmissiveScale-targets[i]!)).toBeLessThan(.01)
-    expect(look.uTime).toBe(234.125)
-    expect(look.uFlicker).toBe(tier==='reduced'?0:1)
+it('maps all eight theme looks without changing window gains', () => {
+  for (const theme of ['light', 'dark'] as const) for (const id of CHAPTER_IDS) {
+    const s = LOOKS[theme][id], x = Math.max(0, Math.min(1, s.windowLitRatio / .35))
+    for (const tier of ['full', 'lite', 'reduced'] as const) {
+      const look = windowLookFor(s, 1234.125, tier)
+      expect(look.uEmissiveScale).toBeCloseTo(.35 + .65 * x * x * (3 - 2 * x), 12)
+      expect(look.uTime).toBeCloseTo(234.125, 10)
+      expect(look.uFlicker).toBe(tier === 'reduced' ? 0 : 1)
+    }
+  }
+})
+it('turns windows off monotonically during the dark-to-light blend', () => {
+  for (const id of CHAPTER_IDS) for (let i = 0; i < 400; i++) {
+    const h = windowHashes([i % 40, Math.floor(i / 40)], Math.fround((i + .5) / 400))
+    let previous = 1
+    for (let frame = 0; frame <= 72; frame++) {
+      const look = lerpLook(LOOKS.light[id], LOOKS.dark[id], easeInOut(1 - frame / 72))
+      const amount = windowLitAmount(h.cell, h.building, look.windowLitRatio)
+      expect(amount).toBeLessThanOrEqual(previous + 1e-12)
+      previous = amount
+    }
   }
 })
 it('uses float32 seed semantics, including negative facade coordinates', () => {
@@ -73,7 +88,7 @@ it('calibrates each sRGB class in linear space and meets both brightness contrac
     expect(p.gain).toBe(gainFor(p.hex,2.3))
     expect(Math.abs(p.gain*linearLuminance(p.linear)-2.3)).toBeLessThan(1e-3)
   }
-  const project=windowLookFor(STOPS[1]!,0,'full').uEmissiveScale
+  const project=windowLookFor(LOOKS.dark.projects,0,'full').uEmissiveScale
   expect(2.3*.92*project).toBeGreaterThanOrEqual(2)
   expect(2.3*.92*project*.6).toBeGreaterThan(1)
   expect(WINDOW_PALETTE[0].gain*linearLuminance(WINDOW_PALETTE[0].linear)).toBeCloseTo(2.3,6)
@@ -100,5 +115,5 @@ it('keeps gate-zero brightness exactly one even across the wrap boundary', () =>
     expect(a).toBeGreaterThanOrEqual(.6); expect(a).toBeLessThanOrEqual(1)
   }
   // The specified modulo reset can change an eligible cell; reduced mode cannot.
-  expect(windowLookFor(STOPS[3]!,1000.1,'reduced').uFlicker).toBe(0)
+  expect(windowLookFor(LOOKS.dark.about,1000.1,'reduced').uFlicker).toBe(0)
 })

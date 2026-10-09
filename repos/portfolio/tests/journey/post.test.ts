@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Color, ShaderChunk, SRGBColorSpace } from 'three'
-import { STOPS, hexToRgb } from '../../app/journey/stops'
+import { CHAPTER_IDS, LOOKS, hexToRgb } from '../../app/journey/stops'
 import { bloomEnabled, neutralToneMap, POST_EMISSIVES, probePostSupport, skyForDirectPipeline } from '../../app/journey/post'
+
+const allLooks = (['light', 'dark'] as const).flatMap(theme => CHAPTER_IDS.map(id => LOOKS[theme][id]))
 
 describe('post color contract', () => {
   it('disables bloom strictly below the boundary', () => {
@@ -25,8 +27,8 @@ describe('post color contract', () => {
     }
   })
   it('uses linear input, forward mapping, and sRGB output at every exposure', () => {
-    for (const stop of STOPS) for (const rgb of [stop.skyColor, stop.fogColor]) {
-      for (const exposure of [...STOPS.map(s => s.exposure), 1.05, 1.15, 1.2]) {
+    for (const look of allLooks) for (const rgb of [look.skyColor, look.fogColor]) {
+      for (const exposure of [...allLooks.map(s => s.exposure), 1.05, 1.15, 1.2]) {
         const linear = new Color().setRGB(...rgb, SRGBColorSpace).toArray() as [number, number, number]
         const output = new Color()
         new Color().setRGB(...neutralToneMap(linear, exposure)).getRGB(output, SRGBColorSpace)

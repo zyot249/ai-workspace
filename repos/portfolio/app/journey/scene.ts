@@ -1,11 +1,12 @@
 import * as THREE from 'three'
 import { BASE_FOV, fovForAspect } from './camera'
 import { createFacadeMaterial, type FacadeUniforms } from './facade-material'
-import { damp, dampState, easeInOut, lerpStop } from './interpolate'
+import { damp, dampState } from './interpolate'
 import { clearsPath, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, WAYPOINTS } from './path'
-import { STOPS, type Stop, type StopState } from './stops'
+import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { createShaderErrorRecorder } from './shader-utils'
+import { targetFor } from './target'
 import type { Tier } from './tier'
 import { windowLookFor } from './window-look'
 
@@ -89,13 +90,6 @@ const LAYERS = [
   { count: 32, sideSpread: 13, baseHeight: 2.2, color: 0x2a2f4a },
   { count: 40, sideSpread: 18, baseHeight: 3.2, color: 0x353b5c },
 ] as const
-
-function stopAt(index: number): Stop {
-  const last = STOPS.length - 1
-  const stop = STOPS[Math.min(Math.max(index, 0), last)]
-  if (!stop) throw new Error('STOPS is empty')
-  return stop
-}
 
 // Deterministic pseudo-random in [0, 1), seeded by index so layout is stable across renders.
 function seeded(index: number): number {
@@ -622,11 +616,9 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   const tilt = { x: 0, y: 0 }
   const lookAt = new THREE.Vector3()
 
+  // Dark arc until the theme controller replaces this adapter.
   function target(chapter: number, progress: number): StopState {
-    // No easing/blending between stops: each chapter snaps straight to its own
-    // place, still showing all four without any camera travel or wobble.
-    if (tier === 'reduced') return stopAt(chapter)
-    return lerpStop(stopAt(chapter), stopAt(chapter + 1), easeInOut(progress))
+    return targetFor(chapter, progress, 1, tier === 'reduced')
   }
 
   function applyWindowLook(state: StopState, t: number) {

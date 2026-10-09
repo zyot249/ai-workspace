@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
-import { STOPS } from '../../app/journey/stops'
+import { CHAPTER_IDS, LOOKS } from '../../app/journey/stops'
+
+const allLooks = (['light', 'dark'] as const).flatMap(theme => CHAPTER_IDS.map(id => LOOKS[theme][id]))
 
 test.beforeEach(async ({ page }) => { await page.goto('/tests/gpu/harness.html') })
 
@@ -89,8 +91,8 @@ for (const stage of ['output', 'bloom'] as const) {
 }
 
 test('sky and fully fogged pixels agree at authored and intermediate exposures', async ({ page }) => {
-  const inputs = STOPS.flatMap(stop => [stop.exposure, 1.05, 1.15, 1.2].map(exposure =>
-    ({ sky: stop.skyColor, fog: stop.fogColor, exposure })))
+  const inputs = allLooks.flatMap(look => [look.exposure, 1.05, 1.15, 1.2].map(exposure =>
+    ({ sky: look.skyColor, fog: look.fogColor, exposure })))
   const deltas = await page.evaluate(inputs => inputs.map(input => window.cityPost.parity(input)), inputs)
   for (const p of deltas) for (const delta of [...p.skyDelta, ...p.fogDelta]) expect(delta).toBeLessThanOrEqual(3)
 })
