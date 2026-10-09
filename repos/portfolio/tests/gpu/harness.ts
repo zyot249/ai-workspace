@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { createJourneyScene, type JourneyScene, type JourneySceneOptions } from '../../app/journey/scene'
+import type { StopState } from '../../app/journey/stops'
 import { probeFacade } from './facade-probe'
-import { breakRestoredComponent, componentResourceCounts, componentStatus, mountComponent, unmountComponent } from './component-probe'
+import { breakRestoredComponent, componentResourceCounts, componentStatus, componentThemeStatus, mountComponent, setComponentDark, unmountComponent } from './component-probe'
 import './post-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 import { measureRenderCost } from './render-cost'
@@ -12,6 +13,7 @@ let renderer: THREE.WebGLRenderer | null = null
 let context: { scene: THREE.Scene; camera: THREE.PerspectiveCamera } | null = null
 let canvas: HTMLCanvasElement | null = null
 let latestFrame: number[] | null = null
+let appliedState: StopState | null = null
 // The composer renders fullscreen passes after the scene, which resets renderer.info; keep the scene's own draw calls.
 let sceneCalls: number | null = null
 let last = { chapter: 0, progress: 0, time: 0 }
@@ -32,10 +34,12 @@ const cityGpu = {
   mountComponent,
   breakRestoredComponent,
   componentStatus,
+  componentThemeStatus,
+  setComponentDark,
   componentResourceCounts,
   unmountComponent,
-  mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number },
-    observers?: Pick<JourneySceneOptions, 'onRenderer' | 'onSceneReady'>) {
+  mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number; initialDark?: boolean },
+    observers?: Pick<JourneySceneOptions, 'onRenderer' | 'onSceneReady' | 'onStateApplied'>) {
     cityGpu.dispose()
     canvas = document.createElement('canvas')
     document.body.append(canvas)
@@ -53,8 +57,13 @@ const cityGpu = {
         observers?.onRenderer?.(value)
       },
       onSceneReady(value) { context = value; observers?.onSceneReady?.(value) },
+      onStateApplied(state) {
+        appliedState = state
+        observers?.onStateApplied?.(state)
+      },
     })
     journey.resize(options.width ?? 640, options.height ?? 360)
+    journey.setTheme(options.initialDark ?? true, { animate: false })
   },
   renderJourney(options: { chapter: number; progress?: number; time?: number; frames?: number }) {
     if (!journey) throw new Error('Mount a journey first')
@@ -62,6 +71,26 @@ const cityGpu = {
     for (let i = 0; i < (options.frames ?? 240); i++) journey.update(last.chapter, last.progress, last.time, { x: 0, y: 0 })
     latestFrame = rendererFrame(requireRenderer())
     return currentDiagnostics()
+  },
+  setJourneyTheme(isDark: boolean, options?: { animate?: boolean }) {
+    if (!journey) throw new Error('Mount a journey first')
+    journey.setTheme(isDark, options)
+    latestFrame = rendererFrame(requireRenderer())
+  },
+  stepJourney(input: { chapter?: number; progress?: number; time: number }) {
+    return cityGpu.renderJourney({ chapter: input.chapter ?? last.chapter,
+      progress: input.progress ?? last.progress, time: input.time, frames: 1 })
+  },
+  journeyState() {
+    if (!appliedState) throw new Error('Journey has not applied a state')
+    const { scene, camera, renderer } = cityGpu.getJourneyContext()
+    const sun = scene.getObjectByName('journey-sun') as THREE.DirectionalLight
+    const hemi = scene.getObjectByName('journey-hemi') as THREE.HemisphereLight
+    const stars = scene.children.find(object => object instanceof THREE.Points) as THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | undefined
+    return { state: appliedState, camera: camera.position.toArray(),
+      sunIntensity: sun.intensity, sunPosition: sun.position.toArray(), sunColor: sun.color.toArray(),
+      hemiIntensity: hemi.intensity, hemiColor: hemi.color.toArray(), starOpacity: stars?.material.opacity ?? null,
+      programs: (renderer.info.programs ?? []).map(program => program.id).sort((a, b) => a - b) }
   },
   getJourneyContext() {
     if (!context) throw new Error('Journey warmup did not complete')
@@ -122,6 +151,7 @@ const cityGpu = {
     renderer = null
     context = null
     latestFrame = null
+    appliedState = null
     canvas?.remove()
     canvas = null
   },
@@ -131,6 +161,7 @@ declare global {
   interface Window {
     cityGpu: typeof cityGpu
     __cityGpuRendererObserver?: (renderer: THREE.WebGLRenderer) => void
+    __cityGpuThemeObserver?: (isDark: boolean, options?: { animate?: boolean }) => void
   }
 }
 window.cityGpu = cityGpu

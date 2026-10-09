@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { createTestRenderer } from './gpu-utils'
 import { createPostPipeline, probePostSupport, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from '../../app/journey/post'
-import type { Vec3 } from '../../app/journey/stops'
+import { CHAPTER_IDS, LOOKS, type Vec3 } from '../../app/journey/stops'
 
 const FOG_FULL_DEPTH = 9
 const FULL_FOG_EXPONENT = 3 // exp(-(3)^2) < 0.0002 of the object colour remains
@@ -371,7 +371,7 @@ export function actualChapter({ chapter }: { chapter: 2 | 3 }): ActualChapterRes
       post!.setLook(savedExposure, strength); post!.render()
       return [readPixel(gl, ...found.center), readPixel(gl, ...found.neighbor)]
     }
-    const strength = chapter === 2 ? 0.28 : 0.42
+    const strength = LOOKS.dark[CHAPTER_IDS[chapter]!].bloomStrength
     const on = capture(strength), off = capture(0)
     return { windowDistance: found.candidate.distance, camera: which, candidates: candidatesFor(near, camera).length, on, off, ...diagnosticsOf(renderer) }
   } finally {
