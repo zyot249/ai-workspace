@@ -170,3 +170,18 @@ test('a production cell reveals continuously and never dims as its ratio rises',
   expect(values[2]).toBeCloseTo(.5,1)
   for(let i=1;i<values.length;i++) expect(values[i]!).toBeGreaterThan(values[i-1]!)
 })
+
+test('shared render-cost probe measures the actual window scene',async({page})=>{
+  const result=await page.evaluate(async()=>{
+    window.cityGpu.mountJourney({tier:'full',lowPower:false,width:640,height:360})
+    const report=await window.cityGpu.measureJourney({chapter:2,durationMs:100})
+    const diagnostic=window.cityGpu.diagnostics()
+    window.cityGpu.dispose()
+    return {report,diagnostic}
+  })
+  expect(result.report.samples).toBeGreaterThan(0)
+  expect(Number.isFinite(result.report.meanMs)).toBe(true)
+  expect(result.report.meanMs).toBeGreaterThan(0)
+  expect(Number.isFinite(result.report.p95Ms)).toBe(true)
+  expect(result.diagnostic.shaderError).toBeNull();expect(result.diagnostic.glError).toBe(0)
+})
