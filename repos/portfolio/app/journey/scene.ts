@@ -1,12 +1,13 @@
 import * as THREE from 'three'
 import { BASE_FOV, fovForAspect } from './camera'
 import { createFacadeMaterial, type FacadeUniforms } from './facade-material'
-import { damp, dampState } from './interpolate'
+import { damp, dampState, lerpLook } from './interpolate'
 import { clearsPath, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, WAYPOINTS } from './path'
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { createShaderErrorRecorder } from './shader-utils'
 import { targetFor } from './target'
+import { createThemeController } from './theme-blend'
 import type { Tier } from './tier'
 import { windowLookFor } from './window-look'
 
@@ -18,7 +19,7 @@ export interface Pointer {
 export interface JourneyScene {
   update(chapter: number, progress: number, t: number, pointer: Pointer): void
   resize(width: number, height: number): void
-  setTheme(isDark: boolean): void
+  setTheme(isDark: boolean, options?: { animate?: boolean }): void
   dispose(): void
 }
 
@@ -26,6 +27,7 @@ export interface JourneySceneOptions {
   lowPower?: boolean
   onRenderer?: (renderer: THREE.WebGLRenderer) => void
   onSceneReady?: (ready: { scene: THREE.Scene; camera: THREE.PerspectiveCamera }) => void
+  onStateApplied?: (state: Readonly<StopState>) => void
 }
 
 const DAMPING = 0.08
@@ -610,15 +612,21 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   const hemi = new THREE.HemisphereLight(0xbfdbfe, 0x1a1a1f, 0.9)
   const sun = new THREE.DirectionalLight(0xffffff, 0.8)
   sun.position.set(-4, 6, 4)
+  hemi.name = 'journey-hemi'
+  sun.name = 'journey-sun'
   scene.add(hemi, sun)
 
+  const hemiMid = new THREE.Color()
+  const themes = createThemeController(tier === 'reduced')
+  let lastChapter = 0
+  let lastProgress = 0
+  let lastTime = 0
   let current: StopState = target(0, 0)
   const tilt = { x: 0, y: 0 }
   const lookAt = new THREE.Vector3()
 
-  // Dark arc until the theme controller replaces this adapter.
   function target(chapter: number, progress: number): StopState {
-    return targetFor(chapter, progress, 1, tier === 'reduced')
+    return targetFor(chapter, progress, themes.mix, tier === 'reduced')
   }
 
   function applyWindowLook(state: StopState, t: number) {
@@ -639,11 +647,21 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     sky.setRGB(skyRgb[0], skyRgb[1], skyRgb[2], THREE.SRGBColorSpace)
     fog.color.setRGB(fogRgb[0], fogRgb[1], fogRgb[2], THREE.SRGBColorSpace)
     fog.density = state.fogDensity
-    hemi.color.setRGB(state.skyColor[0], state.skyColor[1], state.skyColor[2], THREE.SRGBColorSpace)
+    hemi.color.setRGB(...state.skyZenith, THREE.SRGBColorSpace)
+      .lerp(hemiMid.setRGB(...state.skyColor, THREE.SRGBColorSpace), 0.5)
+    hemi.intensity = state.hemiIntensity
+    sun.color.setRGB(...state.sunColor, THREE.SRGBColorSpace)
+    sun.intensity = Math.max(0.25, THREE.MathUtils.smoothstep(state.sunElevation, -6, 12))
+    const elevation = THREE.MathUtils.degToRad(state.sunElevation)
+    const azimuth = THREE.MathUtils.degToRad(state.sunAzimuth)
+    // Azimuth 0 points toward -Z and positive angles turn toward -X; the
+    // height clamp keeps a below-horizon sun acting as moonlight.
+    sun.position.set(-Math.sin(azimuth) * Math.cos(elevation) * 10,
+      Math.max(2, Math.sin(elevation) * 10), -Math.cos(azimuth) * Math.cos(elevation) * 10)
     facade.uLit.value = state.windowLitRatio
     facade.uSkyTint.value.setRGB(...state.skyColor, THREE.SRGBColorSpace)
     for (const layer of layers) applyBuildingState(layer, state.buildingHeight, state.buildingDensity)
-    if (stars) stars.material.opacity = state.windowLitRatio
+    if (stars) stars.material.opacity = state.starOpacity
 
     // Camera position/lookAt are driven by distance along the bent path, not
     // raw x/z, so interpolating between two stops follows the turns instead
@@ -657,6 +675,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     )
     lookAt.set(lookPoint.x, state.lookHeight, lookPoint.z)
     camera.lookAt(lookAt)
+    options.onStateApplied?.(state)
   }
 
   function resize(width: number, height: number) {
@@ -696,6 +715,10 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
 
   return {
     update(chapter, progress, t, pointer) {
+      lastChapter = chapter
+      lastProgress = progress
+      lastTime = t
+      themes.advance(t)
       current = tier === 'reduced'
         ? target(chapter, progress)
         : dampState(current, target(chapter, progress), DAMPING)
@@ -710,9 +733,14 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
 
     resize,
 
-    setTheme(isDark) {
-      sun.intensity = isDark ? 0.5 : 0.9
-      hemi.intensity = isDark ? 0.6 : 0.9
+    setTheme(isDark, themeOptions) {
+      const result = themes.setTheme(isDark, themeOptions)
+      if (!result.changed || !result.snapped) return
+      const selected = target(lastChapter, lastProgress)
+      current = { ...current, ...lerpLook(selected, selected, 0) }
+      applyWindowLook(current, lastTime)
+      apply(current)
+      if (!renderer.getContext().isContextLost()) renderFrame()
     },
 
     dispose,
