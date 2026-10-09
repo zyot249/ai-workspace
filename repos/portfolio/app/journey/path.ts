@@ -23,6 +23,8 @@ export interface PathSegment {
   cumStart: number
 }
 
+export const ROAD_HALF_WIDTH = 3
+
 // Places the journey passes, in order: entrance gate, exhibition hall, market
 // square, home courtyard. Each sits mid-leg, not on a turn, so its own
 // geometry (and the road beside it) has room clear of the corner.
