@@ -1,9 +1,11 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
+import { applyBuildingState, createBuildingLayer, isActive, LAYERS } from '../../app/journey/buildings'
 import {
   createContactShadowField, radialFalloffPixels, ROAD_MARKING_RENDER_ORDER, SHADOW_NAME, SHADOW_OPACITY,
-  SHADOW_RENDER_ORDER, SHADOW_TEXTURE_SIZE, SHADOW_Y, shadowTransform,
+  SHADOW_RENDER_ORDER, SHADOW_TEXTURE_SIZE, SHADOW_Y, shadowTransform, writeLayerShadows,
 } from '../../app/journey/contact-shadows'
+import { createFacadeUniforms } from '../../app/journey/facade-material'
 
 const building = { x: 3, z: -4, width: 1, depth: 0.8 }
 const matrix = new THREE.Matrix4()
@@ -162,5 +164,82 @@ describe('createContactShadowField', () => {
     field.mesh.material.alphaMap!.addEventListener('dispose', () => disposed.push('alphaMap'))
     field.dispose()
     expect(disposed.sort()).toEqual(['alphaMap', 'geometry', 'material'])
+  })
+})
+
+describe('writeLayerShadows', () => {
+  // Fresh layers per test: applyBuildingState skips unchanged state, so shared layers would couple the tests.
+  function setup() {
+    const layers = [0, 1].map(i => createBuildingLayer(i, { lowPower: false, facade: createFacadeUniforms() }))
+    const offsets = [0, layers[0]!.buildings.length]
+    const total = layers.reduce((sum, layer) => sum + layer.buildings.length, 0)
+    const field = createContactShadowField(total)
+    const sync = (density: number, height = 1) => {
+      layers.forEach((layer, i) => {
+        if (applyBuildingState(layer, height, density, 0, true)) writeLayerShadows(field, offsets[i]!, layer)
+      })
+      field.commit()
+    }
+    const visibleCount = () =>
+      Array.from({ length: total }, (_, i) => scaleOf(field.mesh, i).x).filter(x => x > 0).length
+    return { layers, offsets, field, sync, visibleCount }
+  }
+
+  it('gives every active building a shadow and no inactive building one', () => {
+    const { layers, offsets, field, sync, visibleCount } = setup()
+    sync(0.35)
+    let expected = 0
+    layers.forEach((layer, l) => layer.buildings.forEach((building, i) => {
+      const active = isActive(building, i, layer.lastActiveCount)
+      expected += active ? 1 : 0
+      expect(scaleOf(field.mesh, offsets[l]! + i).x > 0, `layer ${l} building ${i}`).toBe(active)
+    }))
+    expect(expected).toBeGreaterThan(0)
+    expect(visibleCount()).toBe(expected)
+    field.dispose()
+  })
+
+  it('hides every shadow at density 0 and shows them again as density rises', () => {
+    const { field, sync, visibleCount } = setup()
+    sync(1)
+    const full = visibleCount()
+    expect(full).toBeGreaterThan(0)
+    sync(0)
+    expect(visibleCount()).toBe(0)
+    sync(1)
+    expect(visibleCount()).toBe(full)
+    field.dispose()
+  })
+
+  it('places each quad under its building and grows it with the height scale', () => {
+    const { layers, field, sync } = setup()
+    sync(1, 0.5)
+    const index = layers[0]!.buildings.findIndex(b => b.width > 0)
+    const building = layers[0]!.buildings[index]!
+    const before = scaleOf(field.mesh, index).x
+    field.mesh.getMatrixAt(index, matrix)
+    expect(new THREE.Vector3().setFromMatrixPosition(matrix).x).toBeCloseTo(building.x, 5)
+    expect(new THREE.Vector3().setFromMatrixPosition(matrix).z).toBeCloseTo(building.z, 5)
+    sync(1, 1.5)
+    expect(scaleOf(field.mesh, index).x).toBeGreaterThan(before)
+    field.dispose()
+  })
+
+  it('does not rewrite shadows on an unchanged state', () => {
+    const { field, sync } = setup()
+    sync(0.6)
+    const version = field.mesh.instanceMatrix.version
+    sync(0.6)
+    expect(field.mesh.instanceMatrix.version).toBe(version)
+    field.dispose()
+  })
+
+  it('writes nothing for a layer that has not been applied yet', () => {
+    const { field, visibleCount } = setup()
+    const fresh = createBuildingLayer(2, { lowPower: false, facade: createFacadeUniforms() })
+    writeLayerShadows(field, 0, fresh)
+    expect(visibleCount()).toBe(0)
+    expect(fresh.buildings).toHaveLength(LAYERS[2].count)
+    field.dispose()
   })
 })

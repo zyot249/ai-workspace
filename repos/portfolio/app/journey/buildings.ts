@@ -374,7 +374,7 @@ function setHiddenMatrix(mesh: THREE.InstancedMesh, index: number, building: Bui
   mesh.setMatrixAt(index, matrix)
 }
 
-function isActive(building: Building, index: number, activeCount: number): boolean {
+export function isActive(building: Building, index: number, activeCount: number): boolean {
   return index < activeCount && building.width > 0
 }
 
@@ -438,10 +438,11 @@ function writeBeacons(layer: BuildingLayer, heightScale: number, mask: number): 
 // spot found for it) always stays hidden. Matrices are rewritten only when the
 // height moved by 1e-4 or more or the integer active count changed; beacons also
 // rewrite when their on/off state changes. `dampState` converges asymptotically,
-// so once a chapter settles this is a no-op.
+// so once a chapter settles this is a no-op. Returns true when it rewrote the body
+// matrices, so callers can refresh data derived from them (contact shadows).
 export function applyBuildingState(
   layer: BuildingLayer, heightScale: number, density: number, time: number, steadyBeacon: boolean,
-): void {
+): boolean {
   const total = layer.buildings.length
   const activeCount = Math.min(total, Math.max(0, Math.round(density * total)))
   const moved = !(Math.abs(heightScale - layer.lastHeightScale) < HEIGHT_EPSILON)
@@ -456,4 +457,5 @@ export function applyBuildingState(
     writeBeacons(layer, layer.lastHeightScale, mask)
     layer.lastBeaconMask = mask
   }
+  return moved
 }

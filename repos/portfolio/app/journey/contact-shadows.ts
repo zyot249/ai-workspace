@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { Building } from './buildings'
+import { type Building, type BuildingLayer, isActive } from './buildings'
 import { smoothstep } from './sky-mirror'
 
 // Above the road (-1) and the ground (-1.01), below the road center line (-0.99).
@@ -120,4 +120,17 @@ export function createContactShadowField(totalBuildings: number): ContactShadowF
       alphaMap.dispose()
     },
   }
+}
+
+// Rewrites one layer's shadow quads from the state `applyBuildingState` just stored on the layer.
+// Call it only when `applyBuildingState` returned true. Does nothing before the layer's first apply.
+export function writeLayerShadows(
+  field: Pick<ContactShadowField, 'write'>, offset: number,
+  layer: Pick<BuildingLayer, 'buildings' | 'lastHeightScale' | 'lastActiveCount'>,
+): void {
+  if (layer.lastActiveCount < 0) return
+  layer.buildings.forEach((building, i) => {
+    field.write(offset + i, building, building.baseHeight * layer.lastHeightScale,
+      isActive(building, i, layer.lastActiveCount))
+  })
 }

@@ -103,6 +103,14 @@ describe('createBuildingLayer', () => {
 })
 
 describe('applyBuildingState', () => {
+  it('reports whether it rewrote the matrices', () => {
+    const layer = layerFor(0)
+    expect(run(layer, { density: 0.5 })).toBe(true)
+    expect(run(layer, { density: 0.5 })).toBe(false)
+    expect(run(layer, { density: 0.5, height: 1.2 })).toBe(true)
+    expect(run(layer, { density: 0.9, height: 1.2 })).toBe(true)
+  })
+
   it('rewrites matrices once for an unchanged state', () => {
     const layer = layerFor(0)
     run(layer, { density: 0.5 })
