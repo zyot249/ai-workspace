@@ -67,6 +67,8 @@ export async function mountComponent(options: { failure: 'none' | 'creation' | '
     const originalDispose = renderer.dispose.bind(renderer)
     renderer.render = (scene, camera) => {
       if (unavailable > 0) updatesAfterFailure++
+      // The composer also renders fullscreen quads through this method; only the journey scene counts.
+      if (!(scene as THREE.Scene).isScene) return originalRender(scene, camera)
       observeSceneResources(scene as THREE.Scene)
       capturedScene = scene as THREE.Scene
       if (creationFault) {

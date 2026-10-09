@@ -11,11 +11,18 @@ let renderer: THREE.WebGLRenderer | null = null
 let context: { scene: THREE.Scene; camera: THREE.PerspectiveCamera } | null = null
 let canvas: HTMLCanvasElement | null = null
 let latestFrame: number[] | null = null
+// The composer renders fullscreen passes after the scene, which resets renderer.info; keep the scene's own draw calls.
+let sceneCalls: number | null = null
 let last = { chapter: 0, progress: 0, time: 0 }
 
 function requireRenderer(): THREE.WebGLRenderer {
   if (!renderer) throw new Error('Mount a journey first')
   return renderer
+}
+
+function currentDiagnostics() {
+  const base = rendererDiagnostics(requireRenderer())
+  return sceneCalls === null ? base : { ...base, calls: sceneCalls }
 }
 
 const cityGpu = {
@@ -33,7 +40,16 @@ const cityGpu = {
     last = { chapter: 0, progress: 0, time: 0 }
     journey = createJourneyScene(canvas, options.tier, [{ title: 'GPU test exhibit', date: '2026-10' }], {
       lowPower: options.lowPower,
-      onRenderer(value) { renderer = value; value.setPixelRatio(1); observers?.onRenderer?.(value) },
+      onRenderer(value) {
+        renderer = value; value.setPixelRatio(1)
+        sceneCalls = null
+        const originalRender = value.render.bind(value)
+        value.render = (object, camera) => {
+          originalRender(object, camera)
+          if ((object as THREE.Scene).isScene) sceneCalls = value.info.render.calls
+        }
+        observers?.onRenderer?.(value)
+      },
       onSceneReady(value) { context = value; observers?.onSceneReady?.(value) },
     })
     journey.resize(options.width ?? 640, options.height ?? 360)
@@ -43,7 +59,7 @@ const cityGpu = {
     last = { chapter: options.chapter, progress: options.progress ?? 0, time: options.time ?? 0 }
     for (let i = 0; i < (options.frames ?? 240); i++) journey.update(last.chapter, last.progress, last.time, { x: 0, y: 0 })
     latestFrame = rendererFrame(requireRenderer())
-    return rendererDiagnostics(requireRenderer())
+    return currentDiagnostics()
   },
   getJourneyContext() {
     if (!context) throw new Error('Journey warmup did not complete')
@@ -75,7 +91,7 @@ const cityGpu = {
     cityGpu.renderJourney({ chapter: options.chapter, frames: 240 })
     return measureRenderCost(requireRenderer(), cityGpu.getJourneyUpdate(), options.durationMs)
   },
-  diagnostics() { return rendererDiagnostics(requireRenderer()) },
+  diagnostics() { return currentDiagnostics() },
   readFrame() {
     if (!latestFrame) throw new Error('Render a journey frame before reading its pixels')
     return latestFrame
