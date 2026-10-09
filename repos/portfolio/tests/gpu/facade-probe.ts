@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createFacadeMaterial, type FacadeVariant } from '../../app/journey/facade-material'
+import { createFacadeMaterial, createFacadeUniforms, type FacadeVariant } from '../../app/journey/facade-material'
 import { createTestRenderer, diagnostics, readFrame } from './gpu-utils'
 
 export function probeFacade(options: {
@@ -12,8 +12,7 @@ export function probeFacade(options: {
   geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(new Float32Array([0.375]), 1))
   geometry.setAttribute('aWindowed', new THREE.InstancedBufferAttribute(new Float32Array([options.windowed === false ? 0 : 1]), 1))
   const material = createFacadeMaterial({ color: 0x505050, variant: options.variant,
-    uniforms: { uLit: { value: options.lit }, uSkyTint: { value: new THREE.Color(0x6688aa) },
-      uTime: { value: 0 }, uFlicker: { value: 0 }, uEmissiveScale: { value: 1 } } })
+    uniforms: { ...createFacadeUniforms(0), uLit: { value: options.lit }, uSkyTint: { value: new THREE.Color(0x6688aa) } } })
   try {
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0)

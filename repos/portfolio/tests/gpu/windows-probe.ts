@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createFacadeMaterial } from '../../app/journey/facade-material'
+import { createFacadeMaterial, createFacadeUniforms } from '../../app/journey/facade-material'
 import { createTestRenderer } from './gpu-utils'
 export interface WindowProbeInput {
   variant:'full'|'lite';seed:number;ratio:number;time?:number;flicker?:number;
@@ -16,9 +16,8 @@ export function probeWindows(input:WindowProbeInput):WindowProbeResult {
     type:THREE.FloatType,format:THREE.RGBAFormat,minFilter:THREE.NearestFilter,
     magFilter:THREE.NearestFilter,depthBuffer:true,stencilBuffer:false})
   const geometry=new THREE.BoxGeometry(1,1,1)
-  const uniforms={uLit:{value:input.ratio},uSkyTint:{value:new THREE.Color(0xbfdbfe)},
-    uTime:{value:input.time??0},uFlicker:{value:input.flicker??0},
-    uEmissiveScale:{value:input.emissiveScale??1}}
+  const uniforms={...createFacadeUniforms(input.flicker??0),uLit:{value:input.ratio},uSkyTint:{value:new THREE.Color(0xbfdbfe)},
+    uTime:{value:input.time??0},uEmissiveScale:{value:input.emissiveScale??1}}
   const material=createFacadeMaterial({color:0x353b5c,uniforms,variant:input.variant})
   if(input.mode) material.defines={...material.defines,FACADE_DEBUG_WINDOW:input.mode}
   const mesh=new THREE.InstancedMesh(geometry,material,1)

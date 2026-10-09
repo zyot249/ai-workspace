@@ -43,7 +43,8 @@ for (const [tier, lowPower] of [
       window.cityGpu.mountJourney({ tier, lowPower })
       const layers = window.cityGpu.journeyLayers()
       const planeBatchCount = window.cityGpu.getJourneyContext().scene.children.filter(object =>
-        'isInstancedMesh' in object && object.isInstancedMesh && 'geometry' in object
+        object.name !== 'journey-contact-shadows'
+          && 'isInstancedMesh' in object && object.isInstancedMesh && 'geometry' in object
           && object.geometry instanceof Object && 'type' in object.geometry && object.geometry.type === 'PlaneGeometry').length
       const frames = [0, 1, 2, 3].map(chapter => window.cityGpu.renderJourney({ chapter }))
       frames.push(window.cityGpu.renderJourney({ chapter: 0, progress: 0.5 }))
@@ -60,7 +61,8 @@ for (const [tier, lowPower] of [
     // Parent be4b857 at 640x360, one exhibit: full 58/26/15 and lite 57/25/14 calls.
     // Reduced desktop adds one static star draw while the old reduced path omitted it.
     // City 05 adds four backdrop draws on every tier: dome, haze and two far rings.
-    const expectedCalls = (lowPower ? [60, 28, 17] : [61, 29, 18]).map(calls => calls + (lowPower ? 0 : LANDMARK_DRAW_CALLS))
+    // City 04 adds one contact-shadow draw on every tier.
+    const expectedCalls = (lowPower ? [60, 28, 17] : [61, 29, 18]).map(calls => calls + (lowPower ? 0 : LANDMARK_DRAW_CALLS) + 1)
     expect([result.frames[0]!.calls, result.frames[2]!.calls, result.frames[3]!.calls]).toEqual(expectedCalls)
     for (const layer of result.layers) {
       expect(layer.seedCount).toBe(layer.count)

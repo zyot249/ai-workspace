@@ -1,9 +1,13 @@
 import * as THREE from 'three'
+import {
+  type FacadeGradientUniforms, gradientFragmentDeclarations, gradientFragmentPatch,
+  gradientVertexDeclarations, gradientVertexPatch,
+} from './facade-gradient'
 import { FACADE_CELL } from './facade-grid'
 import { glslFloat, glslVec3, replaceOrThrow } from './shader-utils'
 import { WINDOW, WINDOW_PALETTE } from './window-look'
 
-export interface FacadeUniforms {
+export interface FacadeUniforms extends FacadeGradientUniforms {
   uLit: { value: number }
   uSkyTint: { value: THREE.Color }
   uTime: { value: number }
@@ -15,6 +19,17 @@ export type FacadeVariant = 'full' | 'lite'
 const glsl = glslFloat
 const glsl3 = glslVec3
 const [warm, neutral, cool] = WINDOW_PALETTE
+
+// Neutral defaults: the gradient is off (strengths 0), so a caller that sets only the window uniforms renders as before.
+export function createFacadeUniforms(flicker = 1): FacadeUniforms {
+  return {
+    uLit: { value: 0 }, uSkyTint: { value: new THREE.Color() },
+    uTime: { value: 0 }, uFlicker: { value: flicker }, uEmissiveScale: { value: 1 },
+    uAoStrength: { value: 0 }, uRimStrength: { value: 0 }, uBounce: { value: 0 },
+    uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color(0xffffff) },
+    uBounceColor: { value: new THREE.Color(warm.hex) },
+  }
+}
 const saltedHash = (salt: readonly [number, number, number]) =>
   `windowHash13(vec3(facadeCell + vec2(${glsl(salt[0])}, ${glsl(salt[1])}), vSeed + ${glsl(salt[2])}))`
 const vertexDeclarations = `
@@ -123,7 +138,7 @@ if (abs(vFaceNormal.y) < 0.5 && vWindowed > 0.5) {
   float threshold = facadeCellHash * k;
   facadeLit = smoothstep(threshold, threshold + ${glsl(WINDOW.fadeBand)}, uLit);${variant === 'full' ? fullEmission : liteEmission}
 }
-`
+${gradientFragmentPatch(variant)}`
 }
 
 const debugOutput = `
@@ -133,6 +148,11 @@ const debugOutput = `
   gl_FragColor = vec4(facadeCellHash, facadeBuildingHash, facadeTintHash, 1.0);
 #elif defined(FACADE_DEBUG_WINDOW) && FACADE_DEBUG_WINDOW == 3
   gl_FragColor = vec4(facadeWindowEmission, 1.0);
+#endif
+#if defined(FACADE_DEBUG_AO) && FACADE_DEBUG_AO == 1
+  gl_FragColor = vec4(vec3(facadeAoEffective), 1.0);
+#elif defined(FACADE_DEBUG_AO) && FACADE_DEBUG_AO == 2
+  gl_FragColor = vec4(facadeGradientEmission, 1.0);
 #endif
 `
 
@@ -144,10 +164,10 @@ export function createFacadeMaterial(options: {
   material.name = `journey-facade-${variant}`
   material.precision = 'highp'
   material.customProgramCacheKey = () =>
-    `facade-${variant}-windows-ab-${material.defines?.FACADE_DEBUG_WINDOW ?? 0}`
+    `facade-${variant}-windows-ab-${material.defines?.FACADE_DEBUG_WINDOW ?? 0}-ao-${material.defines?.FACADE_DEBUG_AO ?? 0}`
   material.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, uniforms)
-    shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <common>', '#include <common>\n' + vertexDeclarations)
+    shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <common>', '#include <common>\n' + vertexDeclarations + gradientVertexDeclarations(variant))
     shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <begin_vertex>', `
 #include <begin_vertex>
 vec3 facadeScale = vec3(1.0);
@@ -158,11 +178,11 @@ vFacadePos = (position + vec3(0.0, 0.5, 0.0)) * facadeScale;
 vFaceNormal = normal;
 vSeed = aSeed;
 vWindowed = aWindowed;
-`)
+${gradientVertexPatch(variant)}`)
     shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <project_vertex>', '#include <project_vertex>\nvFacadeDepth = -mvPosition.z;')
-    shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <common>', '#include <common>\n' + fragmentDeclarations)
+    shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <common>', '#include <common>\n' + fragmentDeclarations + gradientFragmentDeclarations(variant))
     shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <color_fragment>', facadeColorPatch(variant))
-    shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += facadeWindowEmission;')
+    shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += facadeWindowEmission + facadeGradientEmission;')
     shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <dithering_fragment>', `#include <dithering_fragment>
 ${debugOutput}`)
   }

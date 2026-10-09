@@ -3,14 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   applyBuildingState, BEACON_PERIOD, BEACON_RADIUS, type BuildingLayer, createBuildingLayer, layerMeshes, LAYERS,
 } from '../../app/journey/buildings'
-import type { FacadeUniforms } from '../../app/journey/facade-material'
+import { createFacadeUniforms } from '../../app/journey/facade-material'
 
-const facade = (): FacadeUniforms => ({
-  uLit: { value: 0 }, uSkyTint: { value: new THREE.Color() }, uTime: { value: 0 },
-  uFlicker: { value: 0 }, uEmissiveScale: { value: 1 },
-})
 const layerFor = (index: number, lowPower = false): BuildingLayer =>
-  createBuildingLayer(index, { lowPower, facade: facade() })
+  createBuildingLayer(index, { lowPower, facade: createFacadeUniforms() })
 const run = (layer: BuildingLayer, o: { height?: number, density?: number, time?: number, steady?: boolean } = {}) =>
   applyBuildingState(layer, o.height ?? 1, o.density ?? 1, o.time ?? 0, o.steady ?? false)
 
@@ -107,6 +103,14 @@ describe('createBuildingLayer', () => {
 })
 
 describe('applyBuildingState', () => {
+  it('reports whether it rewrote the matrices', () => {
+    const layer = layerFor(0)
+    expect(run(layer, { density: 0.5 })).toBe(true)
+    expect(run(layer, { density: 0.5 })).toBe(false)
+    expect(run(layer, { density: 0.5, height: 1.2 })).toBe(true)
+    expect(run(layer, { density: 0.9, height: 1.2 })).toBe(true)
+  })
+
   it('rewrites matrices once for an unchanged state', () => {
     const layer = layerFor(0)
     run(layer, { density: 0.5 })
