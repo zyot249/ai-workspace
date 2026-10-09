@@ -126,3 +126,30 @@ for (const chapter of [2, 3] as const) {
     expect(r.shaderError).toBeNull(); expect(r.glError).toBe(0)
   })
 }
+
+test('actual component emits unavailable for a post warm-up shader failure', async ({ page }) => {
+  try {
+    await page.evaluate(() => window.cityGpu.mountComponent({ failure: 'none', beforeMount: () => window.cityPost.installPostFault('bloom') }))
+    await expect.poll(() => page.evaluate(() => window.cityGpu.componentStatus().unavailable)).toBe(1)
+    const r = await page.evaluate(() => window.cityGpu.componentStatus())
+    expect(r.visible).toBe(false); expect(r.disposed).toBe(1); expect(r.updatesAfterFailure).toBe(0)
+  } finally {
+    await page.evaluate(() => { window.cityPost.restorePostFault(); window.cityGpu.unmountComponent() })
+  }
+})
+
+test('actual component stops on post-program failure after restore', async ({ page }) => {
+  try {
+    await page.evaluate(() => window.cityGpu.mountComponent({ failure: 'none' }))
+    await expect.poll(() => page.evaluate(() => window.cityGpu.componentStatus().visible)).toBe(true)
+    await page.evaluate(() => window.cityGpu.breakRestoredComponent({ beforeRestore: () => window.cityPost.installPostFault('output') }))
+    await expect.poll(() => page.evaluate(() => window.cityGpu.componentStatus().unavailable)).toBe(1)
+    const first = await page.evaluate(() => window.cityGpu.componentStatus())
+    await page.waitForTimeout(100)
+    const later = await page.evaluate(() => window.cityGpu.componentStatus())
+    expect(first.visible).toBe(false); expect(first.disposed).toBe(1)
+    expect(later.updatesAfterFailure).toBe(first.updatesAfterFailure)
+  } finally {
+    await page.evaluate(() => { window.cityPost.restorePostFault(); window.cityGpu.unmountComponent() })
+  }
+})
