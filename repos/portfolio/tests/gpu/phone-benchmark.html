@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta charset="utf-8">
+  <title>City facade phone benchmark</title>
+  <style>
+    body { max-width: 42rem; margin: 1rem auto; padding: 0 1rem 3rem; font: 16px system-ui; background: #111827; color: #f9fafb; }
+    button { font: inherit; padding: .7rem 1rem; margin: .3rem .3rem .3rem 0; border-radius: .5rem; border: 0; }
+    button:disabled { opacity: .5; }
+    canvas { display: block; width: 240px; height: 135px; max-width: 100%; margin: 1rem 0; border: 1px solid #64748b; }
+    textarea { width: 100%; min-height: 16rem; box-sizing: border-box; background: #0f172a; color: #e2e8f0; }
+    #status { min-height: 2.5rem; }
+  </style>
+</head>
+<body data-revision="74ad496">
+  <h1>Facade phone benchmark: after</h1>
+  <p>Use Safari on the same physical iPhone for both pages. Keep orientation, battery, and thermal state comparable. Each page takes about 3 minutes.</p>
+  <button id="run" type="button">Run 3 × 10 s per chapter</button>
+  <button id="copy" type="button">Select results</button>
+  <p id="status">Ready</p>
+  <canvas id="scene" aria-label="Benchmark scene"></canvas>
+  <textarea id="results" readonly aria-label="Benchmark results"></textarea>
+  <script type="module" src="./phone-benchmark.ts"></script>
+</body>
+</html>
