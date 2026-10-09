@@ -27,9 +27,9 @@ for (const [tier, lowPower] of [
     expect(result.measured.meshNames.some(name => name.endsWith('-beacon'))).toBe(!lowPower)
     expect(result.restore.shaderError).toBeNull()
     expect(result.restore.glError).toBe(0)
-    const difference = result.before.reduce((sum, byte, index) => sum + Math.abs(byte - result.after[index]!), 0)
-      / result.before.length
-    expect(difference).toBeLessThan(1)
+    // Max per-channel difference, not the mean: a missing spire or beacon is a few pixels of ~a million.
+    const maxDifference = result.before.reduce((max, byte, index) => Math.max(max, Math.abs(byte - result.after[index]!)), 0)
+    expect(maxDifference).toBeLessThanOrEqual(1)
   })
 }
 
@@ -67,4 +67,27 @@ test('reduced keeps the building frame identical across time', async ({ page }) 
     return a.every((value, index) => value === b[index])
   })
   expect(same).toBe(true)
+})
+
+test('the restore check can see a beacon: hiding beacons changes the frame by more than one level', async ({ page }) => {
+  await page.goto('/tests/gpu/harness.html')
+  await page.waitForFunction(() => Boolean(window.cityGpu))
+  const result = await page.evaluate(() => {
+    window.cityGpu.mountJourney({ tier: 'reduced', lowPower: false })
+    window.cityGpu.renderJourney({ chapter: 3, time: 0 })
+    const withBeacons = window.cityGpu.readFrame()
+    const beacons = window.cityGpu.getJourneyContext().scene.children.filter(child => child.name.endsWith('-beacon'))
+    beacons.forEach(beacon => { beacon.visible = false })
+    window.cityGpu.renderJourney({ chapter: 3, time: 0 })
+    const without = window.cityGpu.readFrame()
+    window.cityGpu.dispose()
+    let max = 0
+    let sum = 0
+    withBeacons.forEach((byte, index) => { const d = Math.abs(byte - without[index]!); max = Math.max(max, d); sum += d })
+    return { beacons: beacons.length, max, mean: sum / withBeacons.length }
+  })
+  expect(result.beacons).toBe(2)
+  expect(result.max).toBeGreaterThan(1)
+  // The old mean < 1 assertion would have passed with no beacon at all.
+  expect(result.mean).toBeLessThan(1)
 })
