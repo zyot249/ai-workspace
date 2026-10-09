@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { createJourneyScene, type JourneyScene, type JourneySceneOptions } from '../../app/journey/scene'
 import { probeFacade } from './facade-probe'
+import { breakRestoredComponent, componentResourceCounts, componentStatus, mountComponent, unmountComponent } from './component-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 
 let journey: JourneyScene | null = null
@@ -17,6 +18,11 @@ function requireRenderer(): THREE.WebGLRenderer {
 
 const cityGpu = {
   probeFacade,
+  mountComponent,
+  breakRestoredComponent,
+  componentStatus,
+  componentResourceCounts,
+  unmountComponent,
   mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number },
     observers?: Pick<JourneySceneOptions, 'onRenderer' | 'onSceneReady'>) {
     cityGpu.dispose()
