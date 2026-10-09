@@ -4,6 +4,7 @@ import {
   createPostPipeline, probePostSupport, TONE_MAPPING,
   type PostPipeline, type PostTargets,
 } from '../../app/journey/post'
+import { actualChapter, actualParity, parity, resizeSynthetic, restoreSynthetic } from './post-probe-checks'
 
 type PostFault = 'half-float' | 'samples' | 'framebuffer'
 
@@ -205,6 +206,7 @@ function restorePostFault(): void {
   originalPostCompile = undefined
 }
 
-const cityPost = { synthetic, lifetime, mountActual, actualDiagnostics, disposeActual, installPostFault, restorePostFault }
+const cityPost = { synthetic, lifetime, mountActual, actualDiagnostics, disposeActual, installPostFault, restorePostFault,
+  parity, actualParity, resizeSynthetic, restoreSynthetic, actualChapter }
 declare global { interface Window { cityPost: typeof cityPost } }
 window.cityPost = cityPost

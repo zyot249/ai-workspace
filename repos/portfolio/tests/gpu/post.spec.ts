@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { STOPS } from '../../app/journey/stops'
 
 test.beforeEach(async ({ page }) => { await page.goto('/tests/gpu/harness.html') })
 
@@ -84,5 +85,44 @@ for (const stage of ['output', 'bloom'] as const) {
       }
     }, stage)
     expect(message).toMatch(/shader|program|invalid_post_fullscreen_token/i)
+  })
+}
+
+test('sky and fully fogged pixels agree at authored and intermediate exposures', async ({ page }) => {
+  const inputs = STOPS.flatMap(stop => [stop.exposure, 1.05, 1.15, 1.2].map(exposure =>
+    ({ sky: stop.skyColor, fog: stop.fogColor, exposure })))
+  const deltas = await page.evaluate(inputs => inputs.map(input => window.cityPost.parity(input)), inputs)
+  for (const p of deltas) for (const delta of [...p.skyDelta, ...p.fogDelta]) expect(delta).toBeLessThanOrEqual(3)
+})
+
+for (const chapter of [0, 1, 2, 3]) {
+  test(`actual scene sky and fully fogged pixels agree in chapter ${chapter}`, async ({ page }) => {
+    const r = await page.evaluate(chapter => window.cityPost.actualParity({ chapter }), chapter)
+    for (const delta of [...r.skyDelta, ...r.fogDelta]) expect(delta).toBeLessThanOrEqual(3)
+    expect(r.shaderError).toBeNull(); expect(r.glError).toBe(0)
+  })
+}
+
+test('initial, odd resize, and DPR change retain half-sized bright pass', async ({ page }) => {
+  const r = await page.evaluate(() => window.cityPost.resizeSynthetic())
+  expect(r.sizes).toEqual(r.expected)
+})
+
+test('night halo and center survive real context loss after resize', async ({ page }) => {
+  const r = await page.evaluate(() => window.cityPost.restoreSynthetic())
+  for (let p = 0; p < r.before.length; p++) for (let c = 0; c < 3; c++) {
+    expect(Math.abs(r.before[p]![c]! - r.after[p]![c]!)).toBeLessThanOrEqual(3)
+  }
+  expect(Math.max(...r.before[1]!.slice(0, 3))).toBeGreaterThan(0)
+  expect(Math.max(...r.after[1]!.slice(0, 3))).toBeGreaterThan(0)
+  expect(r.shaderError).toBeNull(); expect(r.glError).toBe(0)
+})
+
+for (const chapter of [2, 3] as const) {
+  test(`real near facade halo in chapter ${chapter}`, async ({ page }) => {
+    const r = await page.evaluate(chapter => window.cityPost.actualChapter({ chapter }), chapter)
+    expect(r.windowDistance).toBeLessThanOrEqual(10)
+    expect(r.on[1]!.slice(0, 3).reduce((a, b) => a + b, 0)).toBeGreaterThan(r.off[1]!.slice(0, 3).reduce((a, b) => a + b, 0))
+    expect(r.shaderError).toBeNull(); expect(r.glError).toBe(0)
   })
 }
