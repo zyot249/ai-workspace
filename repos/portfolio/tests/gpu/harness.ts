@@ -3,6 +3,7 @@ import { createJourneyScene, type JourneyScene, type JourneySceneOptions } from 
 import type { StopState } from '../../app/journey/stops'
 import { buildingDrawCalls } from './buildings-probe'
 import { probeFacade } from './facade-probe'
+import { probeGradient } from './gradient-probe'
 import { breakRestoredComponent, componentResourceCounts, componentStatus, componentThemeStatus, mountComponent, setComponentDark, unmountComponent } from './component-probe'
 import './post-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
@@ -33,6 +34,7 @@ function currentDiagnostics() {
 const cityGpu = {
   sky: skyProbe,
   probeFacade,
+  probeGradient,
   probeWindows,
   buildingDrawCalls,
   mountComponent,
