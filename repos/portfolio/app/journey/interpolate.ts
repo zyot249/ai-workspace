@@ -30,6 +30,8 @@ export function lerpStop(a: StopState, b: StopState, p: number): StopState {
     buildingDensity: lerp(a.buildingDensity, b.buildingDensity, p),
     buildingHeight: lerp(a.buildingHeight, b.buildingHeight, p),
     windowLitRatio: lerp(a.windowLitRatio, b.windowLitRatio, p),
+    exposure: lerp(a.exposure, b.exposure, p),
+    bloomStrength: lerp(a.bloomStrength, b.bloomStrength, p),
   }
 }
 

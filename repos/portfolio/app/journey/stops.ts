@@ -16,6 +16,8 @@ export interface StopState {
   buildingDensity: number
   buildingHeight: number
   windowLitRatio: number
+  exposure: number
+  bloomStrength: number
 }
 
 export interface Stop extends StopState {
@@ -48,6 +50,8 @@ export const STOPS: readonly Stop[] = [
     buildingDensity: 0.35,
     buildingHeight: 0.6,
     windowLitRatio: 0.05,
+    exposure: 1,
+    bloomStrength: 0,
   },
   {
     id: 'projects',
@@ -64,6 +68,8 @@ export const STOPS: readonly Stop[] = [
     buildingDensity: 0.6,
     buildingHeight: 0.85,
     windowLitRatio: 0.3,
+    exposure: 1,
+    bloomStrength: 0.12,
   },
   {
     id: 'skills',
@@ -77,6 +83,8 @@ export const STOPS: readonly Stop[] = [
     buildingDensity: 0.85,
     buildingHeight: 1.15,
     windowLitRatio: 0.65,
+    exposure: 1.1,
+    bloomStrength: 0.28,
   },
   {
     id: 'about',
@@ -90,5 +98,7 @@ export const STOPS: readonly Stop[] = [
     buildingDensity: 1,
     buildingHeight: 1,
     windowLitRatio: 0.9,
+    exposure: 1.25,
+    bloomStrength: 0.42,
   },
 ]

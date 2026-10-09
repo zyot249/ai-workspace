@@ -3,8 +3,8 @@ import { CHAPTER_IDS, STOPS, hexToRgb, type StopState } from '../../app/journey/
 import { clamp01, damp, dampState, easeInOut, lerp, lerpStop } from '../../app/journey/interpolate'
 
 function state(stop: StopState): StopState {
-  const { cameraDistance, cameraHeight, lookAheadDistance, lookHeight, skyColor, fogColor, fogDensity, buildingDensity, buildingHeight, windowLitRatio } = stop
-  return { cameraDistance, cameraHeight, lookAheadDistance, lookHeight, skyColor, fogColor, fogDensity, buildingDensity, buildingHeight, windowLitRatio }
+  const { cameraDistance, cameraHeight, lookAheadDistance, lookHeight, skyColor, fogColor, fogDensity, buildingDensity, buildingHeight, windowLitRatio, exposure, bloomStrength } = stop
+  return { cameraDistance, cameraHeight, lookAheadDistance, lookHeight, skyColor, fogColor, fogDensity, buildingDensity, buildingHeight, windowLitRatio, exposure, bloomStrength }
 }
 
 const [intro, projects] = STOPS
@@ -107,4 +107,19 @@ describe('dampState', () => {
   it('reaches the target with factor 1', () => {
     expect(dampState(state(intro), state(projects), 1)).toEqual(state(projects))
   })
+})
+
+it('interpolates exposure and bloom at all required points', () => {
+  expect(STOPS.map(s => [s.exposure, s.bloomStrength])).toEqual([
+    [1, 0], [1, 0.12], [1.1, 0.28], [1.25, 0.42],
+  ])
+  for (let i = 0; i < STOPS.length - 1; i++) {
+    const a = STOPS[i]!, b = STOPS[i + 1]!
+    for (const p of [0, 0.5, 1]) {
+      const got = lerpStop(a, b, p)
+      expect(got.exposure).toBeCloseTo(a.exposure * (1 - p) + b.exposure * p, 12)
+      expect(got.bloomStrength).toBeCloseTo(a.bloomStrength * (1 - p) + b.bloomStrength * p, 12)
+    }
+  }
+  expect(dampState(STOPS[0]!, STOPS[3]!, 1).exposure).toBe(1.25)
 })
