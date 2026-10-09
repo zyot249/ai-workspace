@@ -9,7 +9,9 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:gpu": "playwright test --config playwright.config.ts",
+    "test:gpu:serve": "vite --config vite.gpu.config.ts --host 127.0.0.1 --port 4175 --strictPort"
   },
   "dependencies": {
     "@nuxt/content": "^3.16.1",
@@ -21,8 +23,11 @@
     "vue-router": "^5.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/typography": "^0.5.20",
     "@types/three": "^0.186.0",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "vite": "^8.3.0",
     "vitest": "^5.0.1",
     "vue-tsc": "^2.2.0"
   }

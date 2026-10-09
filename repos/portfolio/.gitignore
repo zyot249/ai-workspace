@@ -28,3 +28,7 @@ logs
 
 # Vitest cache
 .vitest
+
+# Playwright artifacts
+test-results
+playwright-report
