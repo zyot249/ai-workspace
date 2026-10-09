@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createApp, h, nextTick, type App } from 'vue'
+import { createApp, h, nextTick, ref, type App } from 'vue'
 import JourneyCanvas from '../../app/components/JourneyCanvas.vue'
 
 const invalid = '\n#error deliberately invalid journey shader\n'
@@ -8,6 +8,9 @@ let capturedRenderer: THREE.WebGLRenderer | null = null
 let capturedCanvas: HTMLCanvasElement | null = null
 let capturedScene: THREE.Scene | null = null
 let previousObserver: Window['__cityGpuRendererObserver']
+let componentDark = ref(false)
+let previousThemeObserver: Window['__cityGpuThemeObserver']
+let themeCalls: { isDark: boolean; animate: boolean | undefined }[] = []
 let creationFault: 'glsl' | 'missing-marker' | null = null
 let unavailable = 0
 let disposed = 0
@@ -52,13 +55,20 @@ function observeSceneResources(scene: THREE.Scene) {
   })
 }
 
-export async function mountComponent(options: { failure: 'none' | 'creation' | 'missing-marker'; beforeMount?: () => void }): Promise<void> {
+export async function mountComponent(options: { failure: 'none' | 'creation' | 'missing-marker'; beforeMount?: () => void; chapter?: number; initialDark?: boolean }): Promise<void> {
   unmountComponent()
   unavailable = 0
   disposed = 0
   updatesAfterFailure = 0
   observed.clear()
   creationFault = options.failure === 'creation' ? 'glsl' : options.failure === 'missing-marker' ? 'missing-marker' : null
+  componentDark = ref(options.initialDark ?? false)
+  themeCalls = []
+  previousThemeObserver = window.__cityGpuThemeObserver
+  window.__cityGpuThemeObserver = (isDark, themeOptions) => {
+    themeCalls.push({ isDark, animate: themeOptions?.animate })
+    previousThemeObserver?.(isDark, themeOptions)
+  }
   previousObserver = window.__cityGpuRendererObserver
   window.__cityGpuRendererObserver = renderer => {
     capturedRenderer = renderer
@@ -84,7 +94,7 @@ export async function mountComponent(options: { failure: 'none' | 'creation' | '
   const host = document.querySelector('#journey-component')
   if (!host) throw new Error('Journey component host missing')
   app = createApp({ render: () => h(JourneyCanvas, {
-    chapter: 3, progress: 0, isDark: false,
+    chapter: options.chapter ?? 3, progress: 0, isDark: componentDark.value,
     projectItems: [{ title: 'Disposal probe', date: '2026-10' }],
     onUnavailable() { unavailable++ },
   }) })
@@ -120,12 +130,24 @@ export function componentStatus() {
   }
 }
 
+export async function setComponentDark(isDark: boolean): Promise<void> {
+  componentDark.value = isDark
+  await nextTick()
+}
+
+export function componentThemeStatus() {
+  const sky = capturedScene?.background
+  const rgb = sky instanceof THREE.Color ? sky.getRGB(new THREE.Color(), THREE.SRGBColorSpace).toArray() : null
+  return { calls: [...themeCalls], sky: rgb }
+}
+
 export function componentResourceCounts(): number[] { return [...observed.values()] }
 
 export function unmountComponent() {
   app?.unmount()
   app = null
   window.__cityGpuRendererObserver = previousObserver
+  window.__cityGpuThemeObserver = previousThemeObserver
   capturedRenderer = null
   capturedCanvas = null
   capturedScene = null

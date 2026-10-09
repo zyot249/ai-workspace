@@ -165,6 +165,7 @@ onMounted(async () => {
     const { createJourneyScene } = await import('~/journey/scene')
     if (unmounted) return
     scene = createJourneyScene(canvas.value, tier, props.projectItems, { lowPower: lowPowerFor(tierInput) })
+    scene.setTheme(document.documentElement.classList.contains('dark'), { animate: false })
   } catch (error) {
     console.warn('[journey] 3D scene disabled:', error)
     teardown()
@@ -174,7 +175,6 @@ onMounted(async () => {
 
   active.value = true
   onResize()
-  scene.setTheme(props.isDark)
   window.addEventListener('resize', onResize)
   document.addEventListener('visibilitychange', onVisibility)
   if (tier === 'full') window.addEventListener('pointermove', onPointer, { passive: true })

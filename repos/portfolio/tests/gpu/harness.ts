@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { createJourneyScene, type JourneyScene, type JourneySceneOptions } from '../../app/journey/scene'
 import type { StopState } from '../../app/journey/stops'
 import { probeFacade } from './facade-probe'
-import { breakRestoredComponent, componentResourceCounts, componentStatus, mountComponent, unmountComponent } from './component-probe'
+import { breakRestoredComponent, componentResourceCounts, componentStatus, componentThemeStatus, mountComponent, setComponentDark, unmountComponent } from './component-probe'
 import './post-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 import { measureRenderCost } from './render-cost'
@@ -34,6 +34,8 @@ const cityGpu = {
   mountComponent,
   breakRestoredComponent,
   componentStatus,
+  componentThemeStatus,
+  setComponentDark,
   componentResourceCounts,
   unmountComponent,
   mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number; initialDark?: boolean },
@@ -159,6 +161,7 @@ declare global {
   interface Window {
     cityGpu: typeof cityGpu
     __cityGpuRendererObserver?: (renderer: THREE.WebGLRenderer) => void
+    __cityGpuThemeObserver?: (isDark: boolean, options?: { animate?: boolean }) => void
   }
 }
 window.cityGpu = cityGpu

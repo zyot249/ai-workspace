@@ -13,7 +13,11 @@ export default defineConfig({
         if (id.endsWith('/app/journey/scene.ts')) {
           const marker = 'const recorder = createShaderErrorRecorder(renderer)'
           if (!source.includes(marker)) throw new Error('GPU renderer observer marker missing')
-          return source.replace(marker, marker + '\nwindow.__cityGpuRendererObserver?.(renderer)')
+          const themeMarker = 'setTheme(isDark, themeOptions) {'
+          if (!source.includes(themeMarker)) throw new Error('GPU theme observer marker missing')
+          const withRendererObserver = source.replace(marker, marker + '\nwindow.__cityGpuRendererObserver?.(renderer)')
+          return withRendererObserver.replace(themeMarker,
+            themeMarker + '\nwindow.__cityGpuThemeObserver?.(isDark, themeOptions)')
         }
         if (!id.endsWith('/app/components/JourneyCanvas.vue')) return
         return source.replace('<script setup lang="ts">', '<script setup lang="ts">\nimport { ref, onMounted, onBeforeUnmount, watch } from "vue"')
