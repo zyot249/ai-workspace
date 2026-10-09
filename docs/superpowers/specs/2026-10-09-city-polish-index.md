@@ -31,7 +31,7 @@ Decided 2026-10-09. Follow it top to bottom. Tick a row when it is merged. Each 
 | 1 | 06 Staggered windows, parts A and B | written (`2026-10-09-city-06-staggered-windows.md`) | Needs only 01. Build it before 09, because its plan uses `STOPS`, which 09 removes. Leave part C for step 6. | [ ] |
 | 2 | 09 sections 1 to 5: theme arcs | written ([2026-10-09-city-09-theme-arcs.md](../plans/2026-10-09-city-09-theme-arcs.md)) | Light theme becomes a blue day, dark theme a sunset-to-night arc. Creates `PathState` and `LookState`, so later specs add their fields there (shared conventions, section 4). Update 06's tests from `STOPS[i]` to `LOOKS.dark[...]` and add 06's theme-blend exception (spec 09, section 7). | [x] |
 | 3 | 05 Sky dome and haze, then 09 section 6: clouds | written ([2026-10-09-city-05-sky-haze.md](../plans/2026-10-09-city-05-sky-haze.md)) | 05 uses 09's palettes from the start; do not build 05's own palette table. Clouds go into 05's dome shader. | [ ] |
-| 4 | 03 Building shapes | to write | Independent. Goes before 04 (shared building update loop) and 08 (changes 03's placement). | [ ] |
+| 4 | 03 Building shapes | written ([2026-10-09-city-03-building-shapes.md](../plans/2026-10-09-city-03-building-shapes.md)) | Independent. Goes before 04 (shared building update loop) and 08 (changes 03's placement). | [ ] |
 | 5 | 04 Gradient and contact shadows | to write | Needs 01. Uses 05's sun and 03's update loop. | [ ] |
 | 6 | 06 part C: dusk glass reflections | to write | Needs 04's sun uniforms. | [ ] |
 | 7 | 07 Street life | to write | Uses 03's placement checks, 06's `gainFor`, 04's falloff texture. Lamps follow `windowLitRatio`, so they stay off in the light theme. | [ ] |
