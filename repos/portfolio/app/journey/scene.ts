@@ -7,6 +7,7 @@ import { STOPS, type Stop, type StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { createShaderErrorRecorder } from './shader-utils'
 import type { Tier } from './tier'
+import { windowLookFor } from './window-look'
 
 export interface Pointer {
   x: number
@@ -552,6 +553,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 120)
   const facade: FacadeUniforms = {
     uLit: { value: 0 }, uSkyTint: { value: new THREE.Color() },
+    uTime: { value: 0 }, uFlicker: { value: tier === 'reduced' ? 0 : 1 }, uEmissiveScale: { value: 1 },
   }
 
   let post: PostPipeline | null = null
@@ -627,6 +629,14 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     return lerpStop(stopAt(chapter), stopAt(chapter + 1), easeInOut(progress))
   }
 
+  function applyWindowLook(state: StopState, t: number) {
+    const look = windowLookFor(state, t, tier)
+    facade.uTime.value = look.uTime
+    facade.uFlicker.value = look.uFlicker
+    facade.uEmissiveScale.value = look.uEmissiveScale
+  }
+  applyWindowLook(current, 0)
+
   function apply(state: StopState) {
     // The composer tone-maps the whole frame, so sky and fog stay authored. The
     // direct path tone-maps only object pixels, so map sky and fog on the CPU.
@@ -693,7 +703,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   options.onSceneReady?.({ scene, camera })
 
   return {
-    update(chapter, progress, _t, pointer) {
+    update(chapter, progress, t, pointer) {
       current = tier === 'reduced'
         ? target(chapter, progress)
         : dampState(current, target(chapter, progress), DAMPING)
@@ -701,6 +711,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
         tilt.x = damp(tilt.x, pointer.x * 0.3, DAMPING)
         tilt.y = damp(tilt.y, pointer.y * 0.2, DAMPING)
       }
+      applyWindowLook(current, t)
       apply(current)
       renderFrame()
     },
