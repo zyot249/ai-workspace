@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { LAYERS, placeBuilding } from '../../app/journey/buildings'
 import {
   BUILDING_CLEARANCE, BUILDING_ROAD_MARGIN, clearsSidewalks, PATH_SEGMENTS, pathBandRects, ROAD_HALF_WIDTH,
   roadRects, SIDEWALK_INNER, SIDEWALK_OUTER, type Rect, type Vec2, WAYPOINTS,
@@ -173,4 +174,28 @@ describe('clearsSidewalks', () => {
     // Stall x = side * (BUILDING_CLEARANCE + 0.5 + up to 3); half width 0.6.
     expect(BUILDING_CLEARANCE + 0.5 - 0.6).toBeGreaterThanOrEqual(SIDEWALK_OUTER)
   })
+})
+
+describe('placed buildings and the sidewalk', () => {
+  const polygons = ([-1, 1] as const).map(side => sidewalkPolygon(side))
+
+  it.each(LAYERS.map((config, layer) => [layer, config.sideSpread] as const))(
+    'layer %i: no building rectangle touches either sidewalk polygon',
+    (layer, sideSpread) => {
+      const offenders: string[] = []
+      for (let i = 0; i < 500; i++) {
+        const placed = placeBuilding(layer * 1000 + i, sideSpread)
+        if (!placed) continue
+        const halfW = placed.width / 2, halfD = placed.depth / 2
+        for (let gx = -1; gx <= 1; gx += 0.25) for (let gz = -1; gz <= 1; gz += 0.25) {
+          const x = placed.x + gx * halfW, z = placed.z + gz * halfD
+          if (polygons.some(polygon => inPolygon(polygon, x, z))) offenders.push(`${layer}:${i}`)
+        }
+        for (const polygon of polygons) for (const vertex of polygon) {
+          if (Math.abs(vertex.x - placed.x) < halfW && Math.abs(vertex.z - placed.z) < halfD) offenders.push(`${layer}:${i} vertex`)
+        }
+      }
+      expect(offenders).toEqual([])
+    },
+  )
 })

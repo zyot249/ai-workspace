@@ -6,7 +6,7 @@ import { applyBuildingState, type BuildingLayer, createBuildingLayer, LAYERS, la
 import { createFacadeUniforms } from './facade-material'
 import { CORNER_BLOCKS } from './footprints'
 import { damp, dampState, lerpLook } from './interpolate'
-import { headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH, WAYPOINTS } from './path'
+import { BUILDING_CLEARANCE, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH, WAYPOINTS } from './path'
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { seeded } from './random'
@@ -44,7 +44,6 @@ export const STARS_NAME = 'journey-stars'
 // so stars inside it stay visible. Stars sit within about 110 units of any
 // camera, inside the dome radius of 200.
 const STARS_RENDER_ORDER = -999
-const BUILDING_CLEARANCE = 3.3
 
 const [seg1Maybe, seg2Maybe, seg3Maybe] = PATH_SEGMENTS
 if (!seg1Maybe || !seg2Maybe || !seg3Maybe) throw new Error('expected 3 path segments')

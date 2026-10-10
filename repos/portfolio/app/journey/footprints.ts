@@ -26,7 +26,8 @@ export const FOOTPRINTS: readonly Footprint[] = [
   // halfZ covers HALL_MAX_LENGTH / 2 + margin, not just the base length, so
   // background scenery stays clear even when the hall grows for more projects.
   { x: PLACES.hall.x, z: PLACES.hall.z, heading: headingFor(seg1.dirX, seg1.dirZ), halfX: 4.5, halfZ: 10.5 },
-  { x: PLACES.market.x, z: PLACES.market.z, heading: headingFor(seg2.dirX, seg2.dirZ), halfX: 7.5, halfZ: 6.5 },
+  // Market halfX covers the stalls at BUILDING_CLEARANCE + 0.5 + 3 + 0.6 = 8.6 off the center line.
+  { x: PLACES.market.x, z: PLACES.market.z, heading: headingFor(seg2.dirX, seg2.dirZ), halfX: 8.7, halfZ: 6.5 },
   { x: PLACES.courtyard.x, z: PLACES.courtyard.z, heading: headingFor(seg3.dirX, seg3.dirZ), halfX: 4.5, halfZ: 5 },
 ]
 

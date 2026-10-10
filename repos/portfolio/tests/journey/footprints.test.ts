@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CORNER_BLOCKS, clearsCornerBlocks, clearsFootprints, FOOTPRINTS, type Footprint } from '../../app/journey/footprints'
+import { BUILDING_CLEARANCE } from '../../app/journey/path'
 
 // Inverse of the rotation used in clearsFootprints: footprint-local (lx, lz) to world.
 function worldPoint(fp: Footprint, lx: number, lz: number): { x: number, z: number } {
@@ -26,6 +27,11 @@ describe('clearsFootprints', () => {
       }
     },
   )
+})
+
+it('keeps the market stalls inside the market footprint', () => {
+  const market = FOOTPRINTS[2]!
+  expect(market.halfX).toBeGreaterThanOrEqual(BUILDING_CLEARANCE + 0.5 + 3 + 0.6)
 })
 
 describe('clearsCornerBlocks', () => {
