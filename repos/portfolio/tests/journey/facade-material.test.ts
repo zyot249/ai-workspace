@@ -110,7 +110,6 @@ it('wires the gradient uniforms and the shadow field into the scene', () => {
   expect(scene).toContain('facade.uSunVisibility.value = sky.sunVisibility')
   expect(scene).toContain('writeLayerShadows(shadows')
   expect(scene).toContain('shadows.commit()')
-  expect(scene).toContain('centerLine.renderOrder = ROAD_MARKING_RENDER_ORDER')
   // The rim reads the unclamped sun direction, never the moonlight-clamped light position.
   expect(scene).not.toContain('uSunDir.value.copy(sun.position')
 })

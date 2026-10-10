@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test'
 
 // Near and mid layers each add a spire mesh and a beacon mesh on non-lowPower devices (spec 03).
 const LANDMARK_DRAW_CALLS = 4
+// The old road's eight separate meshes were frustum culled differently by chapter.
+// The merged road, sidewalks, and dash batch change chapters 0/2/3 by these amounts.
+const ROAD_DRAW_CALL_DELTA = [-5, -4, 1] as const
 
 
 test('harness runs the real scene and checks a real render', async ({ page }) => {
@@ -62,7 +65,8 @@ for (const [tier, lowPower] of [
     // Reduced desktop adds one static star draw while the old reduced path omitted it.
     // City 05 adds four backdrop draws on every tier: dome, haze and two far rings.
     // City 04 adds one contact-shadow draw on every tier.
-    const expectedCalls = (lowPower ? [60, 28, 17] : [61, 29, 18]).map(calls => calls + (lowPower ? 0 : LANDMARK_DRAW_CALLS) + 1)
+    const expectedCalls = (lowPower ? [60, 28, 17] : [61, 29, 18]).map((calls, index) =>
+      calls + (lowPower ? 0 : LANDMARK_DRAW_CALLS) + 1 + ROAD_DRAW_CALL_DELTA[index]!)
     expect([result.frames[0]!.calls, result.frames[2]!.calls, result.frames[3]!.calls]).toEqual(expectedCalls)
     for (const layer of result.layers) {
       expect(layer.seedCount).toBe(layer.count)

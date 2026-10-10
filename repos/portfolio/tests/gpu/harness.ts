@@ -9,6 +9,7 @@ import { breakRestoredComponent, componentResourceCounts, componentStatus, compo
 import './post-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 import { measureRenderCost } from './render-cost'
+import { roadProbe } from './road-probe'
 import { skyProbe } from './sky-probe'
 import { probeWindows } from './windows-probe'
 
@@ -34,6 +35,7 @@ function currentDiagnostics() {
 
 const cityGpu = {
   sky: skyProbe,
+  road: roadProbe,
   probeFacade,
   probeGradient,
   probeWindows,

@@ -1,15 +1,16 @@
 import * as THREE from 'three'
 import { BASE_FOV, fovForAspect } from './camera'
-import { createContactShadowField, ROAD_MARKING_RENDER_ORDER, writeLayerShadows } from './contact-shadows'
+import { createContactShadowField, writeLayerShadows } from './contact-shadows'
 import { facadeLookFor } from './facade-gradient'
 import { applyBuildingState, type BuildingLayer, createBuildingLayer, LAYERS, layerMeshes } from './buildings'
 import { createFacadeUniforms } from './facade-material'
 import { CORNER_BLOCKS } from './footprints'
 import { damp, dampState, lerpLook } from './interpolate'
-import { BUILDING_CLEARANCE, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH, WAYPOINTS } from './path'
+import { BUILDING_CLEARANCE, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH } from './path'
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { seeded } from './random'
+import { createRoad } from './road'
 import { CAMERA_FAR, createSky, lightFromStop } from './sky'
 import { createFarSkyline, createGround } from './skyline-far'
 import { createShaderErrorRecorder } from './shader-utils'
@@ -67,54 +68,6 @@ function createStars(): THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>
   stars.name = STARS_NAME
   stars.renderOrder = STARS_RENDER_ORDER
   return stars
-}
-
-// Lays a plane flat (facing up) and turns it to face (dirX, dirZ) along its
-// local-Y (length) axis. Order matters: flatten first, then turn around the
-// world-vertical axis, so a plain rotation.z hack (which tilts instead of
-// turning) doesn't work here.
-function flattenAndHeadPlane(mesh: THREE.Mesh, dirX: number, dirZ: number) {
-  const flatten = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
-  const heading = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), headingFor(dirX, dirZ))
-  mesh.quaternion.copy(flatten).premultiply(heading)
-}
-
-// One road quad per path segment, oriented and sized to that segment, plus a
-// square patch at each interior waypoint so the turns don't leave a gap.
-function createRoad(): THREE.Group {
-  const group = new THREE.Group()
-  const surfaceMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1f, roughness: 1 })
-  const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xf5e6a8, transparent: true, opacity: 0.5 })
-
-  for (const segment of PATH_SEGMENTS) {
-    const midX = segment.fromX + segment.dirX * (segment.length / 2)
-    const midZ = segment.fromZ + segment.dirZ * (segment.length / 2)
-
-    const surface = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_HALF_WIDTH * 2, segment.length), surfaceMaterial)
-    flattenAndHeadPlane(surface, segment.dirX, segment.dirZ)
-    surface.position.set(midX, -1, midZ)
-    group.add(surface)
-
-    const centerLine = new THREE.Mesh(new THREE.PlaneGeometry(0.08, segment.length), lineMaterial)
-    flattenAndHeadPlane(centerLine, segment.dirX, segment.dirZ)
-    centerLine.renderOrder = ROAD_MARKING_RENDER_ORDER
-    centerLine.position.set(midX, -0.99, midZ)
-    group.add(centerLine)
-  }
-
-  for (let i = 1; i < WAYPOINTS.length - 1; i++) {
-    const point = WAYPOINTS[i]
-    if (!point) continue
-    const joint = new THREE.Mesh(
-      new THREE.PlaneGeometry(ROAD_HALF_WIDTH * 2, ROAD_HALF_WIDTH * 2),
-      surfaceMaterial,
-    )
-    joint.rotation.x = -Math.PI / 2
-    joint.position.set(point.x, -1, point.z)
-    group.add(joint)
-  }
-
-  return group
 }
 
 function createCornerBlocks(): THREE.Group {
@@ -458,7 +411,8 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   scene.add(shadows.mesh)
 
   scene.add(createGround())
-  scene.add(createRoad())
+  const road = createRoad(renderer.capabilities.getMaxAnisotropy())
+  scene.add(road.group)
   scene.add(createCornerBlocks())
 
   scene.add(placeOnPath(createGate(), PLACES.entrance, seg1.dirX, seg1.dirZ))
@@ -519,6 +473,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     sun.intensity = light.intensity
     sun.position.set(...light.position)
     facade.uLit.value = state.windowLitRatio
+    road.update(state.wetness, state.skyColor)
     facade.uSkyTint.value.setRGB(...state.skyColor, THREE.SRGBColorSpace)
     layers.forEach((layer, i) => {
       if (applyBuildingState(layer, state.buildingHeight, state.buildingDensity, lastTime, tier === 'reduced')) {
