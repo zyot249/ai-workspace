@@ -876,6 +876,8 @@ The implementation PR states: Parts A/B pass CPU/GPU checks, reports physical me
 
 ### Task 5 (conditional follow-up): Enable full-tier dusk glass after spec 04 lands
 
+> **Superseded** by `docs/superpowers/plans/2026-10-10-city-06c-dusk-glass.md`. Specs 04 and 05 have landed, so the gate is met. Do not execute this task.
+
 **Gate:** This task is **not executable in the selected 01/02/06 batch**. Start only when production `FacadeUniforms.uSunDir/uSunColor`, full-variant `vWorldNormal`, and spec 04's chapter visibility approximation actually exist and have their own tests. Consume spec 05's real unclamped visibility if it has also landed. The full spec 06 glint/Fresnel criterion remains an external dependency until then; this does not block Tasks 1–4.
 
 **Files:**
