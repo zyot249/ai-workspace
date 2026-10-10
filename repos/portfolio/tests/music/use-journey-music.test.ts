@@ -246,6 +246,23 @@ describe('leaving and returning to the page', () => {
     expect(second.api.status.value).toBe('playing')
   })
 
+  it('applies the current document theme to the reused player before it plays again', async () => {
+    localStorage.setItem('music', 'on')
+    const first = mountHost()
+    fire('pointerdown')
+    await flushPromises()
+    first.wrapper.unmount()
+    wrappers = []
+    fake.setTheme.mockClear()
+    document.documentElement.classList.add('dark')
+    mountHost()
+    await flushPromises()
+    expect(fake.setTheme).toHaveBeenCalledWith('dark')
+    const themeOrder = fake.setTheme.mock.invocationCallOrder[0]!
+    const playOrder = fake.play.mock.invocationCallOrder[fake.play.mock.invocationCallOrder.length - 1]!
+    expect(themeOrder).toBeLessThan(playOrder)
+  })
+
   it('removes its listeners on unmount', async () => {
     localStorage.setItem('music', 'on')
     const { wrapper } = mountHost()

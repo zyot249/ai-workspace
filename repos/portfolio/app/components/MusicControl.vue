@@ -19,6 +19,7 @@ const playing = computed(() => status.value === 'playing')
 const errored = computed(() => status.value === 'error')
 const label = computed(() => (errored.value ? 'Background music unavailable' : 'Background music'))
 const hint = computed(() => (status.value === 'armed' ? 'Music resumes on your first click' : undefined))
+const panelId = 'music-panel'
 const panelVisible = computed(() => panelOpen.value && current.value !== null)
 
 // Announce a track only while music is playing, so a returning visitor who has
@@ -84,34 +85,19 @@ onBeforeUnmount(() => {
     v-if="supported"
     ref="root"
     data-music-control
-    class="fixed z-20 right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] flex items-center gap-2"
+    class="fixed z-20 right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] flex flex-row-reverse items-center gap-2"
     @mouseenter="openPanel"
     @mouseleave="closePanel"
     @focusin="openPanel"
     @focusout="onFocusOut"
     @keydown.esc="closePanel"
   >
-    <div
-      v-if="panelVisible && current"
-      data-music-panel
-      class="rounded-2xl p-3 max-w-[16rem] bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm text-sm"
-    >
-      <p class="font-semibold">{{ current.title }}</p>
-      <p class="text-neutral-600 dark:text-neutral-400">{{ current.artist }}</p>
-      <p class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{{ current.credit }}</p>
-      <button
-        type="button"
-        class="mt-2 rounded px-2 py-1 border border-neutral-300 dark:border-neutral-700"
-        @click="next"
-      >
-        Next track
-      </button>
-    </div>
-
     <button
       type="button"
       :aria-label="label"
       :aria-pressed="playing"
+      :aria-expanded="panelVisible"
+      :aria-controls="panelVisible ? panelId : undefined"
       :disabled="errored"
       :title="hint"
       class="relative h-11 w-11 shrink-0 rounded-full flex items-center justify-center bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm text-neutral-800 dark:text-neutral-100 disabled:opacity-60"
@@ -135,6 +121,25 @@ onBeforeUnmount(() => {
         <path v-else d="M16 9l5 6M21 9l-5 6" />
       </svg>
     </button>
+
+    <div
+      v-if="panelVisible && current"
+      :id="panelId"
+      data-music-panel
+      class="rounded-2xl p-3 max-w-[16rem] bg-white/75 dark:bg-neutral-950/60 backdrop-blur border border-neutral-200/70 dark:border-white/10 shadow-sm text-sm"
+    >
+      <p class="font-semibold">{{ current.title }}</p>
+      <p class="text-neutral-600 dark:text-neutral-400">{{ current.artist }}</p>
+      <p class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{{ current.credit }}</p>
+      <button
+        v-if="playing"
+        type="button"
+        class="mt-2 rounded px-2 py-1 border border-neutral-300 dark:border-neutral-700"
+        @click="next"
+      >
+        Next track
+      </button>
+    </div>
 
     <span class="sr-only" aria-live="polite">{{ announcement }}</span>
   </div>

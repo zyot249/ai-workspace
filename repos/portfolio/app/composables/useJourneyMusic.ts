@@ -100,12 +100,15 @@ export function useJourneyMusic(isDark: Ref<boolean>) {
   async function ensurePlayer(): Promise<MusicPlayer> {
     const existing = shared.value.player
     if (existing) {
+      // The theme may have changed while this page was unmounted (the toggle lives in the nav).
+      existing.setTheme(themeFromDocument())
       bind(existing)
       return existing
     }
     const { createMusicPlayer } = await loadEngine()
     const raced = shared.value.player
     if (raced) {
+      raced.setTheme(themeFromDocument())
       bind(raced)
       return raced
     }

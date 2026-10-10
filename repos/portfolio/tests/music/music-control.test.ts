@@ -116,6 +116,48 @@ describe('panel', () => {
   })
 })
 
+describe('panel structure', () => {
+  async function openPanel(status: string) {
+    state.status.value = status
+    state.current.value = track('Morning walk')
+    const wrapper = render()
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-music-control]').trigger('mouseenter')
+    return wrapper
+  }
+
+  it('places the panel after the toggle button in DOM order so Tab reaches Next track', async () => {
+    const wrapper = await openPanel('playing')
+    const toggleButton = wrapper.get('button[aria-label="Background music"]').element
+    const panel = wrapper.get('[data-music-panel]').element
+    expect(toggleButton.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('reflects the open state in aria-expanded and points aria-controls at the panel', async () => {
+    state.status.value = 'playing'
+    state.current.value = track('Morning walk')
+    const wrapper = render()
+    const toggleButton = wrapper.get('button[aria-label="Background music"]')
+    expect(toggleButton.attributes('aria-expanded')).toBe('false')
+    await wrapper.get('[data-music-control]').trigger('mouseenter')
+    expect(toggleButton.attributes('aria-expanded')).toBe('true')
+    const panel = wrapper.get('[data-music-panel]')
+    expect(panel.attributes('id')).toBeTruthy()
+    expect(toggleButton.attributes('aria-controls')).toBe(panel.attributes('id'))
+  })
+
+  it('shows Next track only while playing, and keeps the credit visible when paused', async () => {
+    const wrapper = await openPanel('paused')
+    const panel = wrapper.get('[data-music-panel]')
+    expect(panel.text()).toContain('Morning walk')
+    expect(panel.text()).toContain('CC0')
+    expect(wrapper.findAll('button').some(button => button.text() === 'Next track')).toBe(false)
+    state.status.value = 'playing'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('button').some(button => button.text() === 'Next track')).toBe(true)
+  })
+})
+
 describe('live region', () => {
   it('announces only after playback starts', async () => {
     const wrapper = render()
