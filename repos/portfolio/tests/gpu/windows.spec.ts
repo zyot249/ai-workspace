@@ -1,4 +1,6 @@
 import { expect,test } from '@playwright/test'
+import * as THREE from 'three'
+import { glassColorFor } from '../../app/journey/facade-glass'
 import { hash11, windowHashes, windowLitAmount, windowClass, WINDOW_PALETTE,
   linearLuminance, windowLookFor } from '../../app/journey/window-look'
 import { LOOKS } from '../../app/journey/stops'
@@ -186,4 +188,50 @@ test('shared render-cost probe measures the actual window scene',async({page})=>
   expect(result.report.meanMs).toBeGreaterThan(0)
   expect(Number.isFinite(result.report.p95Ms)).toBe(true)
   expect(result.diagnostic.shaderError).toBeNull();expect(result.diagnostic.glError).toBe(0)
+})
+
+test('full glass reflects the real sun and brightens at grazing view; lite stays flat', async({page})=>{
+  const result=await page.evaluate(()=>{
+    const common={seed:.5625,ratio:0,mode:4 as const}
+    const full=(extra:object)=>window.cityGpu.probeWindows({...common,variant:'full',...extra})
+    const lite=(extra:object)=>window.cityGpu.probeWindows({...common,variant:'lite',...extra})
+    return {
+      sunFacing:full({sunDir:[0,0,1],sunVisibility:1,viewAngle:0}),
+      sunAway:full({sunDir:[1,0,0],sunVisibility:1,viewAngle:0}),
+      sunHidden:full({sunDir:[0,0,1],sunVisibility:0,viewAngle:0}),
+      headOn:full({sunVisibility:0,viewAngle:0}),
+      grazing:full({sunVisibility:0,viewAngle:76}),
+      liteSunFacing:lite({sunDir:[0,0,1],sunVisibility:1,viewAngle:0}),
+      liteSunAway:lite({sunDir:[1,0,0],sunVisibility:1,viewAngle:0}),
+      liteHeadOn:lite({sunVisibility:0,viewAngle:0}),
+      liteGrazing:lite({sunVisibility:0,viewAngle:76}),
+    }
+  })
+  for(const r of Object.values(result)){expect(r.shaderError).toBeNull();expect(r.glError).toBe(0)}
+  const index=25*80+40
+  const at=(r:{samples:number[][]})=>r.samples[index]!
+  const lum=(r:{samples:number[][]})=>linearLuminance(at(r))
+  // Glint: a wall facing the sun is much brighter than the same wall with the sun rotated 90 degrees away.
+  expect(lum(result.sunFacing)).toBeGreaterThan(lum(result.sunAway)+.5)
+  // No sun below the horizon: visibility 0 removes the glint exactly, and nothing turns black.
+  expect(at(result.sunHidden)).toEqual(at(result.sunAway))
+  expect(lum(result.sunAway)).toBeGreaterThan(.05)
+  // Fresnel: grazing is brighter than head-on.
+  expect(lum(result.grazing)).toBeGreaterThan(lum(result.headOn)*1.3)
+  // lowPower variant shows neither effect.
+  expect(at(result.liteSunFacing)).toEqual(at(result.liteSunAway))
+  expect(at(result.liteGrazing)).toEqual(at(result.liteHeadOn))
+  // The shader matches the CPU mirror at three geometries.
+  const wall=new THREE.Color(0x353b5c),sky=new THREE.Color(0xbfdbfe),sun=new THREE.Color(0xffe1a8)
+  const expected=(angle:number,sunDir:[number,number,number],sunVisibility:number)=>{
+    const a=angle*Math.PI/180
+    return glassColorFor({wall:[wall.r,wall.g,wall.b],skyTint:[sky.r,sky.g,sky.b],sunColor:[sun.r,sun.g,sun.b],
+      normal:[0,0,1],view:[Math.sin(a),0,Math.cos(a)],sunDir,sunVisibility})
+  }
+  const cases:[string,number,[number,number,number],number][]=[
+    ['sunFacing',0,[0,0,1],1],['headOn',0,[0,0,1],0],['grazing',76,[0,0,1],0]]
+  for(const [name,angle,sunDir,vis] of cases) {
+    const want=expected(angle,sunDir,vis),got=at(result[name as 'sunFacing'])
+    for(let i=0;i<3;i++) expect(Math.abs(got[i]!-want[i]!)).toBeLessThan(2e-3)
+  }
 })

@@ -549,6 +549,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     facade.uBounce.value = gradient.uBounce
     facade.uSunDir.value.copy(sky.sunDirection)
     facade.uSunColor.value.copy(sun.color)
+    facade.uSunVisibility.value = sky.sunVisibility
     options.onStateApplied?.(state)
   }
 

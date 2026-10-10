@@ -15,7 +15,7 @@ it.each(['full', 'lite'] as const)('patches pinned standard shader: %s', variant
   material.onBeforeCompile(shader as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer)
   expect(shader.uniforms).toMatchObject(uniforms)
   expect((shader.uniforms as typeof uniforms).uLit).toBe(uniforms.uLit)
-  expect(material.customProgramCacheKey()).toBe(`facade-${variant}-windows-ab-0-ao-0`)
+  expect(material.customProgramCacheKey()).toBe(`facade-${variant}-windows-${variant === 'full' ? 'abc' : 'ab'}-0-ao-0`)
   expect(shader.vertexShader).toContain('(position + vec3(0.0, 0.5, 0.0)) * facadeScale')
   expect(shader.vertexShader.indexOf('vFacadeDepth = -mvPosition.z')).toBeGreaterThan(shader.vertexShader.indexOf('#include <project_vertex>'))
   expect(shader.fragmentShader).toContain('totalEmissiveRadiance += facadeWindowEmission')
@@ -63,7 +63,6 @@ it('registers window uniforms and emits the reduced-cost variant separately', ()
   expect(full.shader.fragmentShader).toContain('facadeWindowEmission')
   for (const variant of [full, lite]) {
     expect(variant.shader.fragmentShader).toContain('facadeLit')
-    expect(variant.shader.fragmentShader).not.toContain('uSunVisibility')
     variant.m.dispose()
   }
 })
@@ -94,9 +93,10 @@ it('splices the gradient into both variants, and the rim and bounce into full on
   expect(full.shader.fragmentShader).toContain('vTopY')
   expect(full.shader.vertexShader).toContain('vTopY = (facadeModel * vec4(0.0, 0.5, 0.0, 1.0)).y')
   expect(full.shader.vertexShader).toContain('vWorldNormal')
-  for (const name of ['uRimStrength', 'uBounce', 'uSunDir', 'uSunColor', 'uBounceColor', 'vTopY', 'vWorldNormal']) {
-    expect(lite.shader.fragmentShader).not.toContain(name)
-    expect(lite.shader.vertexShader).not.toContain(name)
+  // Whole-word match: three's own chunks declare `vWorldPosition`, which must not trip the `vWorldPos` check.
+  for (const name of ['uRimStrength', 'uBounce', 'uSunDir', 'uSunColor', 'uBounceColor', 'vTopY', 'vWorldNormal', 'uSunVisibility', 'vWorldPos']) {
+    expect(lite.shader.fragmentShader).not.toMatch(new RegExp(`\\b${name}\\b`))
+    expect(lite.shader.vertexShader).not.toMatch(new RegExp(`\\b${name}\\b`))
   }
   expect(full.m.customProgramCacheKey()).not.toBe(patched('full', 0, 1).m.customProgramCacheKey())
   expect(patched('full', 0, 1).m.customProgramCacheKey()).not.toBe(patched('full', 0, 2).m.customProgramCacheKey())
@@ -107,9 +107,33 @@ it('wires the gradient uniforms and the shadow field into the scene', () => {
   const scene = readFileSync(new URL('../../app/journey/scene.ts', import.meta.url), 'utf8')
   expect(scene).toContain('facadeLookFor(state, sky.sunVisibility)')
   expect(scene).toContain('facade.uSunDir.value.copy(sky.sunDirection)')
+  expect(scene).toContain('facade.uSunVisibility.value = sky.sunVisibility')
   expect(scene).toContain('writeLayerShadows(shadows')
   expect(scene).toContain('shadows.commit()')
   expect(scene).toContain('centerLine.renderOrder = ROAD_MARKING_RENDER_ORDER')
   // The rim reads the unclamped sun direction, never the moonlight-clamped light position.
   expect(scene).not.toContain('uSunDir.value.copy(sun.position')
+})
+
+it('adds dusk glass to the full variant only', () => {
+  const full = patched('full'); const lite = patched('lite')
+  const { vertexShader, fragmentShader, uniforms } = full.shader
+  expect(uniforms.uSunVisibility).toBe(full.uniforms.uSunVisibility)
+  expect(full.uniforms.uSunVisibility.value).toBe(0)
+  expect(vertexShader).toContain('vWorldPos = (facadeModel * vec4(position, 1.0)).xyz;')
+  expect(vertexShader.indexOf('vWorldPos =')).toBeGreaterThan(vertexShader.indexOf('mat4 facadeModel = modelMatrix;'))
+  expect(fragmentShader).toContain('reflect(-glassV, glassN)')
+  expect(fragmentShader).toContain('facadeGlass = glass;')
+  expect(fragmentShader).toContain('FACADE_DEBUG_WINDOW == 4')
+  // Glass is diffuse and lit. It must never reach the emissive sum, or it would feed bloom.
+  expect(fragmentShader).toContain('totalEmissiveRadiance += facadeWindowEmission + facadeGradientEmission;')
+  expect(fragmentShader).not.toMatch(/totalEmissiveRadiance[^;]*facadeGlass/)
+  for (const name of ['uSunVisibility', 'vWorldPos', 'glassFresnel', 'glassGlint', 'glassR']) {
+    expect(lite.shader.fragmentShader).not.toMatch(new RegExp(`\\b${name}\\b`))
+    expect(lite.shader.vertexShader).not.toMatch(new RegExp(`\\b${name}\\b`))
+  }
+  expect(lite.shader.fragmentShader).toContain('vec3 glass = mix(wallColor, uSkyTint * 0.35, 0.6);')
+  expect(full.m.customProgramCacheKey()).toBe('facade-full-windows-abc-0-ao-0')
+  expect(lite.m.customProgramCacheKey()).toBe('facade-lite-windows-ab-0-ao-0')
+  full.m.dispose(); lite.m.dispose()
 })
