@@ -106,3 +106,48 @@ function distanceToSegment(x: number, z: number, segment: PathSegment): number {
 export function clearsPath(x: number, z: number, minClearance: number): boolean {
   return PATH_SEGMENTS.every(segment => distanceToSegment(x, z, segment) >= minClearance)
 }
+
+// Sidewalk strip (spec 08): from the road edge to 3.9 units off the center line.
+export const SIDEWALK_INNER = ROAD_HALF_WIDTH
+export const SIDEWALK_OUTER = 3.9
+export const SIDEWALK_HEIGHT = 0.15
+// Gap kept between a background building and the outer sidewalk edge.
+export const BUILDING_SIDEWALK_GAP = 0.3
+export const BUILDING_ROAD_MARGIN = SIDEWALK_OUTER + BUILDING_SIDEWALK_GAP
+// Market stalls start this far off the center line, so the nearest stall edge (4.4) clears the 3.9 sidewalk.
+export const BUILDING_CLEARANCE = 4.5
+
+export type Rect = readonly [minX: number, minZ: number, maxX: number, maxZ: number]
+
+// Axis-aligned rectangles of a band `halfWidth` either side of the path: one per leg (between its waypoints,
+// not extended past the exterior ends) and one square at each interior waypoint. Every leg of this path is
+// axis aligned, which the check below enforces.
+export function pathBandRects(halfWidth: number): Rect[] {
+  const legs = PATH_SEGMENTS.map((segment): Rect => {
+    if (Math.abs(segment.dirX) > 1e-9 && Math.abs(segment.dirZ) > 1e-9) throw new Error('path legs must be axis aligned')
+    const toX = segment.fromX + segment.dirX * segment.length
+    const toZ = segment.fromZ + segment.dirZ * segment.length
+    return Math.abs(segment.dirX) > 0.5
+      ? [Math.min(segment.fromX, toX), segment.fromZ - halfWidth, Math.max(segment.fromX, toX), segment.fromZ + halfWidth]
+      : [segment.fromX - halfWidth, Math.min(segment.fromZ, toZ), segment.fromX + halfWidth, Math.max(segment.fromZ, toZ)]
+  })
+  const joints = WAYPOINTS.slice(1, -1).map((point): Rect =>
+    [point.x - halfWidth, point.z - halfWidth, point.x + halfWidth, point.z + halfWidth])
+  return [...legs, ...joints]
+}
+
+// The road surface: three leg rectangles, then the two joint squares.
+export function roadRects(): Rect[] {
+  return pathBandRects(ROAD_HALF_WIDTH)
+}
+
+const SIDEWALK_RECTS: readonly Rect[] = pathBandRects(SIDEWALK_OUTER)
+
+// True if a building whose center is (x, z) and whose rectangle reaches `halfExtent` from it stays at least
+// BUILDING_SIDEWALK_GAP clear of every sidewalk rectangle. Distance to the polyline is not enough here: the
+// mitered sidewalk is square at an outside corner and reaches 3.9 * sqrt(2) from the waypoint.
+export function clearsSidewalks(x: number, z: number, halfExtent = 0): boolean {
+  const margin = BUILDING_SIDEWALK_GAP + halfExtent
+  return SIDEWALK_RECTS.every(([minX, minZ, maxX, maxZ]) =>
+    x < minX - margin || x > maxX + margin || z < minZ - margin || z > maxZ + margin)
+}
