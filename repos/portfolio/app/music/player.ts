@@ -396,13 +396,75 @@ export function createMusicPlayer(
     suspendInFlight = null
   }
 
-  // Replaced in Task 5 with the crossfade versions.
+  interface CrossfadeTarget {
+    readonly theme: Theme
+    readonly index: number
+    readonly time: number
+  }
+
+  /**
+   * Start `target` on the idle deck at gain 0, then ramp it up while the active
+   * deck ramps down. If the idle deck already plays the target (a second toggle
+   * during a crossfade), reuse it. `expectedTheme` is set for theme changes: if
+   * the theme changed again while the track was loading, drop this crossfade.
+   */
+  async function crossfade(target: CrossfadeTarget, seconds: number, expectedTheme?: Theme): Promise<void> {
+    const token = ++generation
+    const outgoing = decks[active]
+    const incoming = decks[1 - active]
+    if (!outgoing || !incoming) return
+    snapshot(outgoing)
+    const reusable = incoming.playing && incoming.theme === target.theme && incoming.trackIndex === target.index
+    if (!reusable) {
+      incoming.audio.preload = 'auto'
+      setLevel(incoming, 0)
+      const result = await startTrack(incoming, target.theme, target.index, target.time, token)
+      if (token !== generation) return
+      if (result === 'cancelled') {
+        stopDeck(incoming)
+        return
+      }
+      if (expectedTheme && expectedTheme !== theme) {
+        stopDeck(incoming)
+        return
+      }
+      if (result !== 'started') {
+        env.warn('[music] could not start the', target.theme, 'playlist; keeping the current track')
+        return
+      }
+    }
+    active = 1 - active
+    ramp(incoming, config.volume, seconds)
+    ramp(outgoing, 0, seconds)
+    setCurrent(trackOf(incoming))
+    await delay(seconds)
+    if (token !== generation) return
+    stopDeck(outgoing)
+    outgoing.audio.preload = 'none'
+  }
+
   function setTheme(nextTheme: Theme): void {
+    if (nextTheme === theme) return
     theme = nextTheme
+    if (disposed) return
+    if (status === 'error') {
+      run(play())
+      return
+    }
+    if (status !== 'playing') return
+    if (listFor(config, 'light') === listFor(config, 'dark')) return
+    const deck = decks[active]
+    if (!deck || deck.theme === nextTheme) return
+    const position = positionFor(positions, nextTheme)
+    run(crossfade({ theme: nextTheme, index: position.index, time: position.time }, config.themeCrossfadeSeconds, nextTheme))
   }
 
   async function next(): Promise<void> {
     if (status !== 'playing') return
+    const deck = decks[active]
+    if (!deck) return
+    const list = listFor(config, deck.theme)
+    await crossfade({ theme: deck.theme, index: nextIndex(list, deck.trackIndex), time: 0 }, config.fadeSeconds)
   }
 
   function onChange(listener: () => void): () => void {
