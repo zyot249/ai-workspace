@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { siteConfig } from '~~/site.config'
+import { musicEnabled } from '~/music/playlist'
 
 const { data: featured } = await useAsyncData('home-featured-projects', () =>
   queryCollection('projects').where('featured', '=', true).order('date', 'DESC').all()
@@ -97,5 +98,7 @@ const panel = 'rounded-2xl p-4 sm:p-6 md:p-8 md:max-w-2xl bg-white/75 dark:bg-ne
         </div>
       </JourneyChapter>
     </div>
+
+    <MusicControl v-if="musicEnabled(siteConfig.music)" :is-dark="isDark" />
   </div>
 </template>
