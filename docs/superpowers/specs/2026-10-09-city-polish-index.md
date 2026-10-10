@@ -35,7 +35,7 @@ Decided 2026-10-09. Follow it top to bottom. Tick a row when it is merged. Each 
 | 5 | 04 Gradient and contact shadows | to write | Needs 01. Uses 05's sun and 03's update loop. | [ ] |
 | 6 | 06 part C: dusk glass reflections | to write | Needs 04's sun uniforms. | [ ] |
 | 7 | 07 Street life | to write | Uses 03's placement checks, 06's `gainFor`, 04's falloff texture. Lamps follow `windowLitRatio`, so they stay off in the light theme. | [ ] |
-| 8 | 08 Wet road | to write | Last, because its reflections show every other piece. Before planning: `wetness` is a look field, so decide whether the road is wet in the light theme. | [ ] |
+| 8 | 08 Wet road | written ([2026-10-10-city-08-wet-road.md](../plans/2026-10-10-city-08-wet-road.md)) | Last, because its reflections show every other piece. Decided in the plan: the light theme is dry (`wetness` 0 in all four light entries); the dark theme runs 0, 0.15, 0.4, 0.7. The plan also fixes three spec gaps (sidewalk corners, near-layer starvation, UV overlap); see its Spec Corrections section. | [ ] |
 | any | [Journey music](2026-10-09-journey-music-design.md) | to write | Independent of every city spec. Ships with empty playlists. Build at any point, for example in a parallel worktree. If it lands before step 2, it declares the `Theme` type itself. | [ ] |
 
 **Short path** if time runs out: steps 1, 2, and 3. With step 0 that gives a lit city whose sky follows the theme. Steps 4 to 8 are polish.
