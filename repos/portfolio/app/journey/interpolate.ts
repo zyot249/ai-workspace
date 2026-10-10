@@ -50,6 +50,7 @@ export function lerpLook(a: LookState, b: LookState, p: number): LookState {
     windowLitRatio: lerp(a.windowLitRatio, b.windowLitRatio, p),
     exposure: lerp(a.exposure, b.exposure, p),
     bloomStrength: lerp(a.bloomStrength, b.bloomStrength, p),
+    wetness: lerp(a.wetness, b.wetness, p),
   }
 }
 
