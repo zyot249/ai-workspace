@@ -126,35 +126,49 @@ for (const fallback of FALLBACKS) {
   })
 }
 
-test('resize and context loss keep the reflection: the frame after matches the frame before', async ({ page }) => {
+test('resize and context loss keep the reflection on the first frame', async ({ page }) => {
   test.setTimeout(120000)
   const r = await page.evaluate(async () => {
     window.cityGpu.mountJourney({ tier: 'full', lowPower: false, width: 640, height: 360 })
     window.cityGpu.renderJourney({ chapter: 3 })
-    window.cityGpu.resizeJourney(480, 270)
-    window.cityGpu.renderJourney({ chapter: 3, frames: 3 })
     const wet = window.cityGpu.getJourneyContext().scene.getObjectByName('journey-wet-road')?.userData.wetRoad as WetHandle | undefined
     if (!wet) throw new Error('The journey has no wet road on the composer pipeline')
-    const before = window.cityGpu.readFrame()
+    window.cityGpu.resizeJourney(480, 270)
+    const resized = window.cityGpu.renderJourney({ chapter: 3, frames: 1 })
+    const firstAfterResize = window.cityGpu.readFrame()
+    window.cityGpu.renderJourney({ chapter: 3, frames: 3 })
+    const steady = window.cityGpu.readFrame()
     wet.enabled = false
     window.cityGpu.renderJourney({ chapter: 3, frames: 1 })
     const withoutOverlay = window.cityGpu.readFrame()
     wet.enabled = true
     window.cityGpu.renderJourney({ chapter: 3, frames: 1 })
+    const beforeRestore = window.cityGpu.readFrame()
     const passesBefore = wet.stats.passes
     const restored = await window.cityGpu.loseAndRestore()
-    const after = window.cityGpu.readFrame()
+    const firstAfterRestore = window.cityGpu.readFrame()
     const passesAfter = wet.stats.passes
-    const meanDifference = before.reduce((sum, byte, i) => sum + Math.abs(byte - after[i]!), 0) / before.length
-    const overlayPixels = before.reduce((n, byte, i) => (i % 4 < 3 && Math.abs(byte - withoutOverlay[i]!) > 6 ? n + 1 : n), 0)
+    const reflectedChannels = steady.flatMap((byte, i) =>
+      i % 4 < 3 && Math.abs(byte - withoutOverlay[i]!) > 6 ? [i] : [])
+    const signalError = (frame: number[]) => reflectedChannels.reduce((sum, i) =>
+      sum + Math.abs(frame[i]! - steady[i]!), 0) / reflectedChannels.length
+    const dryError = signalError(withoutOverlay)
+    const resizeError = signalError(firstAfterResize)
+    const beforeRestoreError = signalError(beforeRestore)
+    const restoreError = signalError(firstAfterRestore)
     window.cityGpu.dispose()
-    return { restored, meanDifference, overlayPixels, passesBefore, passesAfter }
+    return { resized, restored, overlayPixels: reflectedChannels.length,
+      dryError, resizeError, beforeRestoreError, restoreError, passesBefore, passesAfter }
   })
+  expect(r.resized.shaderError).toBeNull()
+  expect(r.resized.glError).toBe(0)
   expect(r.restored.shaderError).toBeNull()
   expect(r.restored.glError).toBe(0)
   expect(r.passesAfter).toBeGreaterThan(r.passesBefore)
-  // The overlay really changes the frame at this camera (so "equal" below is not vacuous)...
+  // Select only channels where deliberately disabling the overlay changes this camera's frame.
   expect(r.overlayPixels).toBeGreaterThan(100)
-  // ...and after the restore the reflection is back, with no blank frame.
-  expect(r.meanDifference).toBeLessThan(1)
+  expect(r.dryError).toBeGreaterThan(6)
+  expect(r.beforeRestoreError).toBeLessThan(r.dryError * 0.25)
+  expect(r.resizeError).toBeLessThan(r.dryError * 0.25)
+  expect(r.restoreError).toBeLessThan(r.dryError * 0.25)
 })
