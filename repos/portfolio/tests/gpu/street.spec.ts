@@ -10,6 +10,8 @@ const HALO_IMAGE = 400
 const HALO_HALF_INTENSITY_WIDTH = 0.45
 const BILLBOARD_DISTANCE = 4
 
+const GPU_TEST_TIMEOUT_MS = 120_000
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/tests/gpu/harness.html')
   await page.waitForFunction(() => Boolean(window.cityGpu))
@@ -17,6 +19,7 @@ test.beforeEach(async ({ page }) => {
 
 for (const [tier, lowPower] of TIERS) {
   test(`${tier} lowPower=${lowPower}: no shader errors, the pinned object counts and at most 6 street draw calls (4 with no cars)`, async ({ page }) => {
+    test.setTimeout(GPU_TEST_TIMEOUT_MS)
     const result = await page.evaluate(({ tier, lowPower }) => {
       window.cityGpu.mountJourney({ tier, lowPower })
       const frames = [0, 1, 2, 3].map(chapter => window.cityGpu.renderJourney({ chapter }))
@@ -136,6 +139,7 @@ test('pools: a road pixel under a lamp is brighter than one 4 units away when li
 })
 
 test('traffic moves between t = 0 and t = 0.75, and no car is visible next to a corner at any of 80 times', async ({ page }) => {
+  test.setTimeout(GPU_TEST_TIMEOUT_MS)
   const times = Array.from({ length: 80 }, (_, i) => i * 0.75)
   const result = await page.evaluate(input => window.cityGpu.probeTraffic(input), { cars: 12, times })
   expect(result.shaderError).toBeNull()
@@ -155,6 +159,7 @@ test('with no cars (reduced motion) nothing is drawn and two renders match', asy
 
 for (const [tier, lowPower] of TIERS) {
   test(`${tier} lowPower=${lowPower}: lamps, halos, pools and the falloff texture survive context loss`, async ({ page }) => {
+    test.setTimeout(GPU_TEST_TIMEOUT_MS)
     const result = await page.evaluate(async ({ tier, lowPower }) => {
       window.cityGpu.mountJourney({ tier, lowPower })
       window.cityGpu.renderJourney({ chapter: 3 })

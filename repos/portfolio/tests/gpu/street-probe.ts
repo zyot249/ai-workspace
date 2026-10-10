@@ -15,7 +15,7 @@ const MAP = { left: -36, right: 8, centerZ: -30, halfDepth: 44, pixelsPerUnit: 1
 const MAP_WIDTH = (MAP.right - MAP.left) * MAP.pixelsPerUnit
 const MAP_HEIGHT = 2 * MAP.halfDepth * MAP.pixelsPerUnit
 const TRAFFIC_PIXELS_PER_UNIT = 8
-const CORNER_RADIUS = 2.2
+const CORNER_RADIUS = 2.5
 const LIT_BYTE = 2
 const POOL_AWAY = 4
 

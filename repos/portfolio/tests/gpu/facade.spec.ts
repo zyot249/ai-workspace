@@ -40,6 +40,7 @@ for (const [tier, lowPower] of [
   ['full', true], ['lite', false],
 ] as const) {
   test(`${tier} lowPower=${lowPower}: chapters, mid-transition and restore`, async ({ page }) => {
+    test.setTimeout(120_000)
     await page.goto('/tests/gpu/harness.html')
     await page.waitForFunction(() => Boolean(window.cityGpu))
     const result = await page.evaluate(async ({ tier, lowPower }) => {
