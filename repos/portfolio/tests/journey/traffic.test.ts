@@ -1,12 +1,13 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { DARK_GLASS_HEX, STREET_LIGHT_LUMINANCE } from '../../app/journey/lamps'
+import { DARK_GLASS_HEX, STREET_LIGHT_LUMINANCE, STREET_NAMES } from '../../app/journey/lamps'
 import { headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, pathPointAt } from '../../app/journey/path'
 import {
   CAR_CENTER_Y, CAR_COUNT_FULL, CAR_COUNT_LOW_POWER, CAR_LIGHT_OFFSETS, CAR_RIDE_HEIGHT, CAR_SIZE, type Car,
   carCountFor, carLightColor, carLightIntensity, carPoseAt, CORNER_HIDE, CORNER_SHOW, cornerScale, createCars,
+  createTraffic,
   EDGE_SHOW, edgeScale, FRONT_LIGHT_HEX, LANE_OFFSET, REAR_LIGHT_HEX, REAR_MIN_INTENSITY, SPEED_MAX, SPEED_MIN,
-  visibilityScale,
+  type Traffic, visibilityScale,
 } from '../../app/journey/traffic'
 import { gainFor, linearLuminance } from '../../app/journey/window-look'
 
@@ -218,5 +219,141 @@ describe('car light intensity and color', () => {
     const rearLit = carLightColor('rear', 1, new THREE.Color())
     expect(rearDay.r).toBeGreaterThan(new THREE.Color(DARK_GLASS_HEX).r)
     expect(rearDay.r).toBeLessThan(rearLit.r)
+  })
+})
+
+function meshNamed(traffic: Traffic, name: string): THREE.InstancedMesh {
+  const mesh = traffic.objects.find(object => object.name === name)
+  if (!mesh) throw new Error(`missing mesh ${name}`)
+  return mesh
+}
+
+const matrix = new THREE.Matrix4()
+function positionOf(mesh: THREE.InstancedMesh, index: number): THREE.Vector3 {
+  mesh.getMatrixAt(index, matrix)
+  return new THREE.Vector3().setFromMatrixPosition(matrix)
+}
+function scaleOf(mesh: THREE.InstancedMesh, index: number): number {
+  mesh.getMatrixAt(index, matrix)
+  return new THREE.Vector3().setFromMatrixScale(matrix).x
+}
+
+describe('createTraffic', () => {
+  it('creates no objects for an empty car list, and update does nothing', () => {
+    const traffic = createTraffic([])
+    expect(traffic.objects).toEqual([])
+    expect(() => traffic.update(0.5, 12)).not.toThrow()
+    expect(() => traffic.dispose()).not.toThrow()
+  })
+
+  it('creates no objects under reduced motion, where the car count is 0', () => {
+    expect(createTraffic(createCars(carCountFor(true, false))).objects).toEqual([])
+    expect(createTraffic(createCars(carCountFor(true, true))).objects).toEqual([])
+  })
+
+  it('creates one body per car and four lights per car, culling off, two draw calls', () => {
+    const traffic = createTraffic(createCars(CAR_COUNT_FULL))
+    expect(traffic.objects).toHaveLength(2)
+    const bodies = meshNamed(traffic, STREET_NAMES.carBodies)
+    const lights = meshNamed(traffic, STREET_NAMES.carLights)
+    expect(bodies.count).toBe(12)
+    expect(lights.count).toBe(48)
+    expect(bodies.frustumCulled).toBe(false)
+    expect(lights.frustumCulled).toBe(false)
+    expect(createTraffic(createCars(CAR_COUNT_LOW_POWER)).objects[0]!.count).toBe(6)
+    traffic.dispose()
+  })
+
+  it('puts a visible car body center at y -0.78 on its lane position', () => {
+    const fixture = car(1, 50, 3)
+    const traffic = createTraffic([fixture])
+    traffic.update(1, 0)
+    const bodies = meshNamed(traffic, STREET_NAMES.carBodies)
+    const pose = carPoseAt(fixture, 0)
+    const body = positionOf(bodies, 0)
+    expect(body.y).toBeCloseTo(CAR_CENTER_Y, 6)
+    expect(body.x).toBeCloseTo(pose.x, 6)
+    expect(body.z).toBeCloseTo(pose.z, 6)
+    expect(scaleOf(bodies, 0)).toBeCloseTo(1, 6)
+    traffic.dispose()
+  })
+
+  it('places front lights ahead of the body center along travel and rear lights behind, in both lanes', () => {
+    for (const lane of [1, -1] as const) {
+      const fixture = car(lane, 50, 3)
+      const traffic = createTraffic([fixture])
+      traffic.update(1, 0)
+      const bodies = meshNamed(traffic, STREET_NAMES.carBodies)
+      const lights = meshNamed(traffic, STREET_NAMES.carLights)
+      const body = positionOf(bodies, 0)
+      const point = pathPointAt(50)
+      const travel = new THREE.Vector3(lane * point.dirX, 0, lane * point.dirZ)
+      CAR_LIGHT_OFFSETS.forEach((offset, k) => {
+        const light = positionOf(lights, k)
+        expect(light.y).toBeCloseTo(CAR_CENTER_Y, 6)
+        const ahead = light.clone().sub(body).dot(travel)
+        if (offset.kind === 'front') expect(ahead, `lane ${lane} light ${k}`).toBeGreaterThan(0.4)
+        else expect(ahead, `lane ${lane} light ${k}`).toBeLessThan(-0.4)
+      })
+      traffic.dispose()
+    }
+  })
+
+  it('hides a car on an interior waypoint and at both path ends, lights included', () => {
+    for (const distance of [34, 60, 0]) {
+      const traffic = createTraffic([car(1, distance, 3)])
+      traffic.update(1, 0)
+      expect(scaleOf(meshNamed(traffic, STREET_NAMES.carBodies), 0)).toBe(0)
+      for (let k = 0; k < 4; k++) expect(scaleOf(meshNamed(traffic, STREET_NAMES.carLights), k)).toBe(0)
+      traffic.dispose()
+    }
+  })
+
+  it('moves the cars every update but rewrites colors only when the quantised ratio changes', () => {
+    const traffic = createTraffic([car(1, 50, 3)])
+    const bodies = meshNamed(traffic, STREET_NAMES.carBodies)
+    const lights = meshNamed(traffic, STREET_NAMES.carLights)
+    traffic.update(0.3, 0)
+    const matrixVersion = bodies.instanceMatrix.version
+    const colorVersion = lights.instanceColor!.version
+    traffic.update(0.3, 1)
+    expect(bodies.instanceMatrix.version).toBeGreaterThan(matrixVersion)
+    expect(positionOf(bodies, 0).x).not.toBe(Number.NaN)
+    expect(lights.instanceColor!.version).toBe(colorVersion)
+    traffic.update(0.1, 2)
+    expect(lights.instanceColor!.version).toBeGreaterThan(colorVersion)
+    traffic.dispose()
+  })
+
+  it('colors lights by kind: unlit front lights show dark glass, rear lights keep their 20% glow', () => {
+    const traffic = createTraffic([car(1, 50, 3)])
+    traffic.update(0.05, 0)
+    const lights = meshNamed(traffic, STREET_NAMES.carLights)
+    const out = new THREE.Color()
+    CAR_LIGHT_OFFSETS.forEach((offset, k) => {
+      lights.getColorAt(k, out)
+      const expected = carLightColor(offset.kind, 0.05, new THREE.Color())
+      expect(out.r).toBeCloseTo(expected.r, 6)
+      expect(out.g).toBeCloseTo(expected.g, 6)
+      expect(out.b).toBeCloseTo(expected.b, 6)
+    })
+    traffic.dispose()
+  })
+
+  it('keeps each car body color from the palette entry it was created with', () => {
+    const cars = createCars(CAR_COUNT_LOW_POWER)
+    const traffic = createTraffic(cars)
+    const bodies = meshNamed(traffic, STREET_NAMES.carBodies)
+    const out = new THREE.Color()
+    cars.forEach((c, i) => {
+      bodies.getColorAt(i, out)
+      expect(out.getHex()).toBe(new THREE.Color(c.bodyColor).getHex())
+    })
+    traffic.dispose()
+  })
+
+  it('does not touch matrices when there are no cars to move', () => {
+    const traffic = createTraffic([])
+    expect(() => { for (let t = 0; t < 5; t++) traffic.update(0.9, t) }).not.toThrow()
   })
 })

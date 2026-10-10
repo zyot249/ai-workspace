@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { DARK_GLASS_HEX, lampIntensity, STREET_LIGHT_LUMINANCE } from './lamps'
+import { DARK_GLASS_HEX, lampIntensity, STREET_LIGHT_LUMINANCE, STREET_NAMES } from './lamps'
 import { headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, pathPointAt } from './path'
 import { seeded } from './random'
 import { smoothstep } from './sky-mirror'
@@ -123,4 +123,96 @@ export function carLightIntensity(kind: CarLightKind, windowLitRatio: number): n
 // mix(dark glass, color * gain, intensity)
 export function carLightColor(kind: CarLightKind, windowLitRatio: number, out: THREE.Color): THREE.Color {
   return out.copy(darkGlass).lerp(kind === 'rear' ? litRear : litFront, carLightIntensity(kind, windowLitRatio))
+}
+
+const LIGHT_SIZE = { width: 0.08, height: 0.06, depth: 0.03 } as const
+const RATIO_QUANTUM = 1e-3
+const LIGHTS_PER_CAR = CAR_LIGHT_OFFSETS.length
+
+export interface Traffic {
+  // Car bodies, then car lights: two draw calls. Empty when there are no cars.
+  readonly objects: readonly THREE.InstancedMesh[]
+  update(windowLitRatio: number, t: number): void
+  dispose(): void
+}
+
+// Module-level scratch objects: the per-frame writer reuses them. `pathPointAt` still returns one
+// small object per car per frame, which is negligible next to the matrix work.
+const matrix = new THREE.Matrix4()
+const bodyPosition = new THREE.Vector3()
+const lightOffset = new THREE.Vector3()
+const bodyScale = new THREE.Vector3()
+const bodyRotation = new THREE.Quaternion()
+const UP = new THREE.Vector3(0, 1, 0)
+const pose: CarPose = { x: 0, z: 0, yaw: 0, distance: 0, scale: 0 }
+const scratchColor = new THREE.Color()
+
+export function createTraffic(cars: readonly Car[]): Traffic {
+  if (cars.length === 0) return { objects: [], update() {}, dispose() {} }
+
+  const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.3 })
+  bodyMaterial.name = 'journey-street-car-body'
+  const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })
+  lightMaterial.name = 'journey-street-car-light'
+  const bodies = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(CAR_SIZE.width, CAR_SIZE.height, CAR_SIZE.length), bodyMaterial, cars.length)
+  const lights = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(LIGHT_SIZE.width, LIGHT_SIZE.height, LIGHT_SIZE.depth), lightMaterial, cars.length * LIGHTS_PER_CAR)
+  bodies.name = STREET_NAMES.carBodies
+  lights.name = STREET_NAMES.carLights
+  const objects = [bodies, lights] as const
+  for (const mesh of objects) mesh.frustumCulled = false
+
+  cars.forEach((car, i) => bodies.setColorAt(i, scratchColor.set(car.bodyColor)))
+  if (bodies.instanceColor) bodies.instanceColor.needsUpdate = true
+
+  function writeLightColors(windowLitRatio: number) {
+    for (let i = 0; i < cars.length; i++) {
+      for (let k = 0; k < LIGHTS_PER_CAR; k++) {
+        const light = CAR_LIGHT_OFFSETS[k]
+        if (!light) continue
+        lights.setColorAt(i * LIGHTS_PER_CAR + k, carLightColor(light.kind, windowLitRatio, scratchColor))
+      }
+    }
+    if (lights.instanceColor) lights.instanceColor.needsUpdate = true
+  }
+  // Create the color attribute before the first render: three decides USE_INSTANCING_COLOR from it.
+  writeLightColors(0)
+  let lastKey = 0
+
+  return {
+    objects,
+    update(windowLitRatio, t) {
+      const key = Math.round(windowLitRatio / RATIO_QUANTUM)
+      if (key !== lastKey) {
+        lastKey = key
+        writeLightColors(windowLitRatio)
+      }
+      for (let i = 0; i < cars.length; i++) {
+        const car = cars[i]
+        if (!car) continue
+        carPoseAt(car, t, pose)
+        bodyRotation.setFromAxisAngle(UP, pose.yaw)
+        bodyScale.setScalar(pose.scale)
+        bodyPosition.set(pose.x, CAR_CENTER_Y, pose.z)
+        matrix.compose(bodyPosition, bodyRotation, bodyScale)
+        bodies.setMatrixAt(i, matrix)
+        for (let k = 0; k < LIGHTS_PER_CAR; k++) {
+          const light = CAR_LIGHT_OFFSETS[k]
+          if (!light) continue
+          lightOffset.set(light.x, 0, light.z).applyQuaternion(bodyRotation).multiplyScalar(pose.scale).add(bodyPosition)
+          matrix.compose(lightOffset, bodyRotation, bodyScale)
+          lights.setMatrixAt(i * LIGHTS_PER_CAR + k, matrix)
+        }
+      }
+      bodies.instanceMatrix.needsUpdate = true
+      lights.instanceMatrix.needsUpdate = true
+    },
+    dispose() {
+      for (const mesh of objects) {
+        mesh.geometry.dispose()
+        ;(mesh.material as THREE.Material).dispose()
+      }
+    },
+  }
 }
