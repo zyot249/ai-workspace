@@ -187,3 +187,64 @@ describe('next', () => {
     expect(audios).toHaveLength(0)
   })
 })
+
+describe('takeover while a crossfade is still loading', () => {
+  it('pause stops the incoming deck even when its play() succeeds after the pause began', async () => {
+    const { player, audios, rules, fake } = setup(['l1'], ['d1'])
+    await player.play()
+    await advance(fake, 2)
+    rules.deferPlay = true
+    player.setTheme('dark')
+    await flush()
+    rules.deferPlay = false
+    const paused = player.pause()
+    audios[1].resolvePending()
+    await flush()
+    await advance(fake, 1.5)
+    await paused
+    expect(audios[0].paused).toBe(true)
+    expect(audios[1].paused).toBe(true)
+    expect(player.status).toBe('paused')
+  })
+
+  it('play after a pause stops a deck that started sounding during the pause', async () => {
+    const { player, audios, rules, fake } = setup(['l1'], ['d1'])
+    await player.play()
+    await advance(fake, 2)
+    rules.deferPlay = true
+    player.setTheme('dark')
+    await flush()
+    rules.deferPlay = false
+    void player.pause()
+    await advance(fake, 0.5)
+    audios[1].resolvePending()
+    await flush()
+    await player.play()
+    expect(player.status).toBe('playing')
+    expect(audios[1].paused).toBe(true)
+    expect(audios[0].paused).toBe(false)
+  })
+})
+
+describe('pause during next', () => {
+  it('resumes the new track, not the one fading out', async () => {
+    const { player, audios, fake } = setup(['a', 'b', 'c'])
+    await player.play()
+    await advance(fake, 2)
+    const first = player.next()
+    await flush()
+    await advance(fake, 1.5)
+    await first
+    const second = player.next()
+    await flush()
+    await advance(fake, 0.5)
+    const paused = player.pause()
+    await advance(fake, 1.5)
+    await paused
+    await player.play()
+    expect(player.current?.title).toBe('c')
+    expect(audios[0].src).toBe('/audio/c.mp3')
+    expect(audios[0].paused).toBe(false)
+    await second
+  })
+})

@@ -114,6 +114,7 @@ export class FakeAudio implements AudioElementLike {
   playCalls = 0
   pauseCalls = 0
   private abortPending: (() => void) | null = null
+  private succeedPending: (() => void) | null = null
   private readonly rules: PlayRules
   private readonly listeners: Record<'ended' | 'error', Set<() => void>> = { ended: new Set(), error: new Set() }
 
@@ -124,8 +125,12 @@ export class FakeAudio implements AudioElementLike {
   play(): Promise<void> {
     this.playCalls += 1
     if (this.rules.deferPlay) {
-      return new Promise<void>((_resolve, reject) => {
+      return new Promise<void>((resolve, reject) => {
         this.abortPending = () => reject(domError('AbortError'))
+        this.succeedPending = () => {
+          this.paused = false
+          resolve()
+        }
       })
     }
     if (this.rules.blocked) return Promise.reject(domError('NotAllowedError'))
@@ -138,7 +143,15 @@ export class FakeAudio implements AudioElementLike {
     this.paused = true
     const abort = this.abortPending
     this.abortPending = null
+    this.succeedPending = null
     abort?.()
+  }
+  /** Resolve a deferred `play()` as success, like a browser whose load finished. */
+  resolvePending(): void {
+    const succeed = this.succeedPending
+    this.abortPending = null
+    this.succeedPending = null
+    succeed?.()
   }
   addEventListener(type: 'ended' | 'error', listener: () => void): void {
     this.listeners[type].add(listener)

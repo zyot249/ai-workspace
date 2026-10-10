@@ -183,9 +183,15 @@ export function createMusicPlayer(
     setLevel(deck, 0)
   }
 
+  /** Order decks so the active one comes last; its position then wins when two decks share a theme. */
+  function activeLast(list: readonly Deck[]): Deck[] {
+    const front = decks[active]
+    return [...list.filter(deck => deck !== front), ...list.filter(deck => deck === front)]
+  }
+
   function stopOthers(keep: Deck): void {
     for (const deck of decks) {
-      if (deck !== keep && deck.playing) stopDeck(deck)
+      if (deck !== keep) stopDeck(deck)
     }
   }
 
@@ -303,11 +309,9 @@ export function createMusicPlayer(
   function onContextState(): void {
     if (!context || context.state === 'running' || status !== 'playing') return
     generation += 1
-    for (const deck of decks) {
-      if (!deck.playing) continue
-      snapshot(deck)
-      stopDeck(deck)
-    }
+    for (const deck of activeLast(decks.filter(candidate => candidate.playing))) snapshot(deck)
+    // Stop by identity: a deck still loading has playing=false but may start sounding.
+    for (const deck of decks) stopDeck(deck)
     setStatus('paused')
   }
 
@@ -379,7 +383,7 @@ export function createMusicPlayer(
     if (status !== 'playing') return
     const token = ++generation
     setStatus('paused')
-    const audible = decks.filter(deck => deck.playing)
+    const audible = activeLast(decks.filter(deck => deck.playing))
     let seconds = config.fadeSeconds
     for (const deck of audible) {
       snapshot(deck)
@@ -387,10 +391,9 @@ export function createMusicPlayer(
     }
     await delay(seconds)
     if (token !== generation) return
-    for (const deck of audible) {
-      snapshot(deck)
-      stopDeck(deck)
-    }
+    for (const deck of audible) snapshot(deck)
+    // Stop by identity: a deck still loading has playing=false but may start sounding.
+    for (const deck of decks) stopDeck(deck)
     suspendInFlight = suspendContext(token)
     await suspendInFlight
     suspendInFlight = null
