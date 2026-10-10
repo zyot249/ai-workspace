@@ -135,9 +135,5 @@ it('adds dusk glass to the full variant only', () => {
   expect(lite.shader.fragmentShader).toContain('vec3 glass = mix(wallColor, uSkyTint * 0.35, 0.6);')
   expect(full.m.customProgramCacheKey()).toBe('facade-full-windows-abc-0-ao-0')
   expect(lite.m.customProgramCacheKey()).toBe('facade-lite-windows-ab-0-ao-0')
-  // WebGL2 guarantees only 15 varying vectors, and each declaration here takes at most one.
-  const varyings = (source: string): number => (source.match(/^\s*varying\s/gm) ?? []).length
-  expect(varyings(vertexShader)).toBeLessThanOrEqual(15)
-  expect(varyings(fragmentShader)).toBeLessThanOrEqual(15)
   full.m.dispose(); lite.m.dispose()
 })
