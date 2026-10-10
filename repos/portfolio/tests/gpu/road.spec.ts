@@ -54,3 +54,107 @@ for (const config of CONFIGS) {
     }
   })
 }
+
+type WetHandle = { stats: { passes: number; lastDrawCalls: number }; overlay: { visible: boolean }; enabled: boolean }
+
+test('the reflection pass stays within 16 draw calls, runs when wet, and is off at intro', async ({ page }) => {
+  test.setTimeout(120000)
+  const r = await page.evaluate(() => {
+    window.cityGpu.mountJourney({ tier: 'full', lowPower: false, width: 640, height: 360 })
+    const wet = window.cityGpu.getJourneyContext().scene.getObjectByName('journey-wet-road')?.userData.wetRoad as WetHandle | undefined
+    if (!wet) throw new Error('The journey has no wet road on the composer pipeline')
+    const start = wet.stats.passes
+    window.cityGpu.renderJourney({ chapter: 0, frames: 3 })
+    const intro = { passes: wet.stats.passes - start, visible: wet.overlay.visible }
+    const stops = ([[1, 0], [1, 0.5], [2, 0], [2, 0.5], [3, 0]] as const).map(([chapter, progress]) => {
+      window.cityGpu.renderJourney({ chapter, progress, frames: 30 })
+      return { chapter, progress, calls: wet.stats.lastDrawCalls, visible: wet.overlay.visible, passes: wet.stats.passes }
+    })
+    window.cityGpu.dispose()
+    return { intro, stops }
+  })
+  expect(r.intro).toEqual({ passes: 0, visible: false })
+  let previous = 0
+  for (const stop of r.stops) {
+    expect(stop.visible).toBe(true)
+    expect(stop.calls).toBeGreaterThan(0)
+    expect(stop.calls, `draw calls at chapter ${stop.chapter} progress ${stop.progress}`).toBeLessThanOrEqual(16)
+    expect(stop.passes).toBeGreaterThan(previous)
+    previous = stop.passes
+  }
+})
+
+test('the light theme is dry: no pass and no overlay at any chapter', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    window.cityGpu.mountJourney({ tier: 'full', lowPower: false, width: 640, height: 360, initialDark: false })
+    const wet = window.cityGpu.getJourneyContext().scene.getObjectByName('journey-wet-road')?.userData.wetRoad as WetHandle | undefined
+    if (!wet) throw new Error('The journey has no wet road on the composer pipeline')
+    const start = wet.stats.passes
+    const visible = [0, 1, 2, 3].map(chapter => {
+      window.cityGpu.renderJourney({ chapter, frames: 30 })
+      return wet.overlay.visible
+    })
+    const passes = wet.stats.passes - start
+    window.cityGpu.dispose()
+    return { visible, passes }
+  })
+  expect(r.visible).toEqual([false, false, false, false])
+  expect(r.passes).toBe(0)
+})
+
+const FALLBACKS = [
+  { label: 'lowPower', options: { tier: 'full', lowPower: true }, overlay: false },
+  { label: 'the direct pipeline', options: { tier: 'full', lowPower: false, directPipeline: true }, overlay: false },
+  { label: 'a target that fails the framebuffer check', options: { tier: 'full', lowPower: false, failWetRoadTarget: true }, overlay: false },
+  { label: 'reduced motion', options: { tier: 'reduced', lowPower: false }, overlay: true },
+] as const
+
+for (const fallback of FALLBACKS) {
+  test(`with ${fallback.label} the scene ${fallback.overlay ? 'keeps' : 'drops'} the reflection and still renders`, async ({ page }) => {
+    const r = await page.evaluate(options => {
+      window.cityGpu.mountJourney({ ...options, width: 640, height: 360 })
+      const frame = window.cityGpu.renderJourney({ chapter: 3, frames: 5 })
+      const overlay = window.cityGpu.getJourneyContext().scene.getObjectByName('journey-wet-road')
+      const visible = (overlay as { visible?: boolean } | undefined)?.visible ?? null
+      window.cityGpu.dispose()
+      return { frame, hasOverlay: overlay !== undefined, visible }
+    }, fallback.options)
+    expect(r.hasOverlay).toBe(fallback.overlay)
+    if (fallback.overlay) expect(r.visible).toBe(true)
+    expect(r.frame.shaderError).toBeNull()
+    expect(r.frame.glError).toBe(0)
+  })
+}
+
+test('resize and context loss keep the reflection: the frame after matches the frame before', async ({ page }) => {
+  test.setTimeout(120000)
+  const r = await page.evaluate(async () => {
+    window.cityGpu.mountJourney({ tier: 'full', lowPower: false, width: 640, height: 360 })
+    window.cityGpu.renderJourney({ chapter: 3 })
+    window.cityGpu.resizeJourney(480, 270)
+    window.cityGpu.renderJourney({ chapter: 3, frames: 3 })
+    const wet = window.cityGpu.getJourneyContext().scene.getObjectByName('journey-wet-road')?.userData.wetRoad as WetHandle | undefined
+    if (!wet) throw new Error('The journey has no wet road on the composer pipeline')
+    const before = window.cityGpu.readFrame()
+    wet.enabled = false
+    window.cityGpu.renderJourney({ chapter: 3, frames: 1 })
+    const withoutOverlay = window.cityGpu.readFrame()
+    wet.enabled = true
+    window.cityGpu.renderJourney({ chapter: 3, frames: 1 })
+    const passesBefore = wet.stats.passes
+    const restored = await window.cityGpu.loseAndRestore()
+    const after = window.cityGpu.readFrame()
+    const passesAfter = wet.stats.passes
+    const meanDifference = before.reduce((sum, byte, i) => sum + Math.abs(byte - after[i]!), 0) / before.length
+    const overlayPixels = before.reduce((n, byte, i) => (i % 4 < 3 && Math.abs(byte - withoutOverlay[i]!) > 6 ? n + 1 : n), 0)
+    window.cityGpu.dispose()
+    return { restored, meanDifference, overlayPixels, passesBefore, passesAfter }
+  })
+  expect(r.restored.shaderError).toBeNull()
+  expect(r.restored.glError).toBe(0)
+  expect(r.passesAfter).toBeGreaterThan(r.passesBefore)
+  // The overlay really changes the frame at this camera (so "equal" below is not vacuous)...
+  expect(r.overlayPixels).toBeGreaterThan(100)
+  // ...and after the restore the reflection is back, with no blank frame.
+  expect(r.meanDifference).toBeLessThan(1)
+})

@@ -76,8 +76,8 @@ export function createAsphaltTexture(maxAnisotropy: number): THREE.DataTexture {
   return texture
 }
 
-// World offset added before the noise lookup. Chosen so 32% of the road bounding box is above 0.5 (spec: 15% to 45%).
-export const PUDDLE_ORIGIN: readonly [number, number] = [31, 17]
+// World offset added before the noise lookup. Keeps about a third of the road wet, including the about foreground.
+export const PUDDLE_ORIGIN: readonly [number, number] = [31, 9]
 const PUDDLE_LARGE_SCALE = 24
 const PUDDLE_SMALL_SCALE = 6
 const PUDDLE_LARGE_WEIGHT = 0.75

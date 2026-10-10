@@ -10,6 +10,7 @@ import { BUILDING_CLEARANCE, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type 
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { seeded } from './random'
+import { reflectInPuddles } from './reflect-layer'
 import { createRoad } from './road'
 import { CAMERA_FAR, createSky, lightFromStop } from './sky'
 import { createFarSkyline, createGround } from './skyline-far'
@@ -18,6 +19,7 @@ import { targetFor } from './target'
 import { createThemeController } from './theme-blend'
 import type { Tier } from './tier'
 import { windowLookFor } from './window-look'
+import { createWetRoad, WET_WARMUP, type WetRoad, type WetRoadOptions } from './wet-road'
 
 export interface Pointer {
   x: number
@@ -33,6 +35,8 @@ export interface JourneyScene {
 
 export interface JourneySceneOptions {
   lowPower?: boolean
+  // Test seam: lets a GPU test make the reflection target fail its framebuffer check.
+  wetRoad?: WetRoadOptions
   onRenderer?: (renderer: THREE.WebGLRenderer) => void
   onSceneReady?: (ready: { scene: THREE.Scene; camera: THREE.PerspectiveCamera }) => void
   onStateApplied?: (state: Readonly<StopState>) => void
@@ -356,11 +360,16 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   const facade = createFacadeUniforms(tier === 'reduced' ? 0 : 1)
 
   let post: PostPipeline | null = null
+  let wetRoad: WetRoad | null = null
   let disposed = false
   function dispose() {
     if (disposed) return
     disposed = true
     post?.dispose()
+    if (wetRoad) {
+      wetRoad.dispose()
+      scene.remove(wetRoad.overlay) // its geometry and material are owned by wetRoad, not the scene sweep below
+    }
     const geometries = new Set<THREE.BufferGeometry>()
     const materials = new Set<THREE.Material>()
     const textures = new Set<THREE.Texture>()
@@ -400,6 +409,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     const layer = createBuildingLayer(i, { lowPower, facade })
     layers.push(layer)
     scene.add(...layerMeshes(layer))
+    reflectInPuddles(...layerMeshes(layer))
   }
   const shadowOffsets: number[] = []
   let shadowTotal = 0
@@ -413,7 +423,9 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   scene.add(createGround())
   const road = createRoad(renderer.capabilities.getMaxAnisotropy())
   scene.add(road.group)
-  scene.add(createCornerBlocks())
+  const cornerBlocks = createCornerBlocks()
+  scene.add(cornerBlocks)
+  reflectInPuddles(cornerBlocks)
 
   scene.add(placeOnPath(createGate(), PLACES.entrance, seg1.dirX, seg1.dirZ))
   scene.add(placeOnPath(createColonnade(projectItems), PLACES.hall, seg1.dirX, seg1.dirZ))
@@ -421,10 +433,11 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   scene.add(placeOnPath(createCourtyard(), PLACES.courtyard, seg3.dirX, seg3.dirZ))
 
   const stars = !lowPower ? createStars() : null
-  if (stars) scene.add(stars)
+  if (stars) { scene.add(stars); reflectInPuddles(stars) }
   const sky = createSky(lowPower ? 'lite' : 'full', tier === 'reduced')
   const farSkyline = createFarSkyline(lowPower)
   scene.add(sky.mesh, ...farSkyline.objects)
+  reflectInPuddles(sky.mesh)
 
   const hemi = new THREE.HemisphereLight(0xbfdbfe, 0x1a1a1f, 0.9)
   const sun = new THREE.DirectionalLight(0xffffff, 0.8)
@@ -432,6 +445,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   hemi.name = 'journey-hemi'
   sun.name = 'journey-sun'
   scene.add(hemi, sun)
+  reflectInPuddles(hemi, sun)
 
   const hemiMid = new THREE.Color()
   const themes = createThemeController(tier === 'reduced')
@@ -474,6 +488,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     sun.position.set(...light.position)
     facade.uLit.value = state.windowLitRatio
     road.update(state.wetness, state.skyColor)
+    wetRoad?.setLook(state.wetness, state.fogDensity)
     facade.uSkyTint.value.setRGB(...state.skyColor, THREE.SRGBColorSpace)
     layers.forEach((layer, i) => {
       if (applyBuildingState(layer, state.buildingHeight, state.buildingDensity, lastTime, tier === 'reduced')) {
@@ -512,12 +527,17 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     const safeHeight = Math.max(1, height)
     renderer.setSize(safeWidth, safeHeight, false)
     post?.setSize(safeWidth, safeHeight, renderer.getPixelRatio())
+    if (wetRoad) {
+      const drawing = renderer.getDrawingBufferSize(new THREE.Vector2())
+      wetRoad.setSize(drawing.x, drawing.y)
+    }
     camera.aspect = safeWidth / safeHeight
     camera.fov = fovForAspect(camera.aspect)
     camera.updateProjectionMatrix()
   }
 
   function renderFrame() {
+    wetRoad?.render(scene, camera)
     if (post) post.render()
     else renderer.render(scene, camera)
     recorder.assertClean()
@@ -527,11 +547,16 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   resize(canvas.clientWidth || canvas.width || window.innerWidth,
     canvas.clientHeight || canvas.height || window.innerHeight)
   post = lowPower ? null : createPostPipeline(renderer, scene, camera)
+  // The direct pipeline maps fog and background on the CPU; a linear HDR reflection needs the composer.
+  wetRoad = post ? createWetRoad(renderer, options.wetRoad) : null
+  if (wetRoad) scene.add(wetRoad.overlay)
   apply(current)
   if (post) {
-    // Force bloom on so every optional fullscreen program compiles now, then
+    // Force bloom and reflection on so every optional program compiles now, then
     // restore the real look; a later night chapter must not compile mid-scroll.
     post.setLook(current.exposure, 0.5)
+    wetRoad?.setLook(WET_WARMUP, current.fogDensity)
+    wetRoad?.render(scene, camera)
     post.render()
     recorder.assertClean()
     apply(current)

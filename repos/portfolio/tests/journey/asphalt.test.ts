@@ -94,6 +94,16 @@ describe('puddleMaskAt', () => {
     expect(above / total).toBeGreaterThanOrEqual(0.15)
     expect(above / total).toBeLessThanOrEqual(0.45)
   })
+
+  it('keeps visible puddles in the about chapter foreground', () => {
+    let above = 0, total = 0
+    // The about camera sits over the third leg at (-26, -38) and looks down this section.
+    for (let x = -29; x <= -23; x += 0.5) for (let z = -50; z <= -38; z += 0.5) {
+      total++
+      if (puddleMaskAt(x, z) > 0.5) above++
+    }
+    expect(above / total).toBeGreaterThan(0.25)
+  })
 })
 
 describe('PUDDLE_GLSL', () => {
