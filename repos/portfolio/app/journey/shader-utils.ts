@@ -56,3 +56,31 @@ export function glslFloat(n: number): string {
 export function glslVec3(rgb: readonly number[]): string {
   return `vec3(${rgb.map(glslFloat).join(', ')})`
 }
+
+const FOG_FRAGMENT_MARKER = '#include <fog_fragment>'
+
+// r186 fog_fragment mixes the output toward the fog colour. That is right for alpha-blended
+// objects, but an additive object that outputs black would then add the fog colour to the frame.
+// This version scales the output toward black instead, so a switched-off light adds exactly zero.
+export const ADDITIVE_FOG_GLSL = /* glsl */ `
+#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+  #else
+    float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+  #endif
+  gl_FragColor.rgb *= 1.0 - fogFactor;
+#endif
+`
+
+// Set `customProgramCacheKey` on the material BEFORE calling this: the default key is the text
+// of `onBeforeCompile`, which this function replaces.
+export function attenuateAdditiveFog(material: THREE.Material): void {
+  const earlierCompile = material.onBeforeCompile
+  const earlierKey = material.customProgramCacheKey
+  material.onBeforeCompile = (shader, renderer) => {
+    earlierCompile.call(material, shader, renderer)
+    shader.fragmentShader = replaceOrThrow(shader.fragmentShader, FOG_FRAGMENT_MARKER, ADDITIVE_FOG_GLSL)
+  }
+  material.customProgramCacheKey = () => `${earlierKey.call(material)}|additive-fog`
+}

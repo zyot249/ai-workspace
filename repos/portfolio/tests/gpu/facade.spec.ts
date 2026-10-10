@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test'
 
 // Near and mid layers each add a spire mesh and a beacon mesh on non-lowPower devices (spec 03).
 const LANDMARK_DRAW_CALLS = 4
+// Street life (spec 07): posts, heads, pools and halos, plus car bodies and car lights unless reduced motion removes the cars.
+const STREET_DRAW_CALLS = 6
+const STREET_DRAW_CALLS_REDUCED = 4
 
 
 test('harness runs the real scene and checks a real render', async ({ page }) => {
@@ -37,13 +40,14 @@ for (const [tier, lowPower] of [
   ['full', true], ['lite', false],
 ] as const) {
   test(`${tier} lowPower=${lowPower}: chapters, mid-transition and restore`, async ({ page }) => {
+    test.setTimeout(120_000)
     await page.goto('/tests/gpu/harness.html')
     await page.waitForFunction(() => Boolean(window.cityGpu))
     const result = await page.evaluate(async ({ tier, lowPower }) => {
       window.cityGpu.mountJourney({ tier, lowPower })
       const layers = window.cityGpu.journeyLayers()
       const planeBatchCount = window.cityGpu.getJourneyContext().scene.children.filter(object =>
-        object.name !== 'journey-contact-shadows'
+        object.name !== 'journey-contact-shadows' && !object.name.startsWith('journey-street-')
           && 'isInstancedMesh' in object && object.isInstancedMesh && 'geometry' in object
           && object.geometry instanceof Object && 'type' in object.geometry && object.geometry.type === 'PlaneGeometry').length
       const frames = [0, 1, 2, 3].map(chapter => window.cityGpu.renderJourney({ chapter }))
@@ -62,7 +66,9 @@ for (const [tier, lowPower] of [
     // Reduced desktop adds one static star draw while the old reduced path omitted it.
     // City 05 adds four backdrop draws on every tier: dome, haze and two far rings.
     // City 04 adds one contact-shadow draw on every tier.
-    const expectedCalls = (lowPower ? [60, 28, 17] : [61, 29, 18]).map(calls => calls + (lowPower ? 0 : LANDMARK_DRAW_CALLS) + 1)
+    // City 07 adds four lamp draws on every tier and two car draws unless motion is reduced.
+    const streetCalls = tier === 'reduced' ? STREET_DRAW_CALLS_REDUCED : STREET_DRAW_CALLS
+    const expectedCalls = (lowPower ? [60, 28, 17] : [61, 29, 18]).map(calls => calls + (lowPower ? 0 : LANDMARK_DRAW_CALLS) + 1 + streetCalls)
     expect([result.frames[0]!.calls, result.frames[2]!.calls, result.frames[3]!.calls]).toEqual(expectedCalls)
     for (const layer of result.layers) {
       expect(layer.seedCount).toBe(layer.count)

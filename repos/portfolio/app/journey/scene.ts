@@ -6,6 +6,7 @@ import { applyBuildingState, type BuildingLayer, createBuildingLayer, LAYERS, la
 import { createFacadeUniforms } from './facade-material'
 import { CORNER_BLOCKS } from './footprints'
 import { damp, dampState, lerpLook } from './interpolate'
+import { createLamps, LAMP_SPACING_FULL, LAMP_SPACING_LOW_POWER } from './lamps'
 import { headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH, WAYPOINTS } from './path'
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
@@ -16,6 +17,7 @@ import { createShaderErrorRecorder } from './shader-utils'
 import { targetFor } from './target'
 import { createThemeController } from './theme-blend'
 import type { Tier } from './tier'
+import { carCountFor, createCars, createTraffic } from './traffic'
 import { windowLookFor } from './window-look'
 
 export interface Pointer {
@@ -467,6 +469,11 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   scene.add(placeOnPath(createMarket(), PLACES.market, seg2.dirX, seg2.dirZ))
   scene.add(placeOnPath(createCourtyard(), PLACES.courtyard, seg3.dirX, seg3.dirZ))
 
+  // Street life: lamps follow `lowPower` for count, cars follow reduced motion (none) and `lowPower`.
+  const lamps = createLamps(lowPower ? LAMP_SPACING_LOW_POWER : LAMP_SPACING_FULL)
+  const traffic = createTraffic(createCars(carCountFor(tier === 'reduced', lowPower)))
+  scene.add(...lamps.objects, ...traffic.objects)
+
   const stars = !lowPower ? createStars() : null
   if (stars) scene.add(stars)
   const sky = createSky(lowPower ? 'lite' : 'full', tier === 'reduced')
@@ -520,6 +527,8 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     sun.intensity = light.intensity
     sun.position.set(...light.position)
     facade.uLit.value = state.windowLitRatio
+    lamps.update(state.windowLitRatio)
+    traffic.update(state.windowLitRatio, lastTime)
     facade.uSkyTint.value.setRGB(...state.skyColor, THREE.SRGBColorSpace)
     layers.forEach((layer, i) => {
       if (applyBuildingState(layer, state.buildingHeight, state.buildingDensity, lastTime, tier === 'reduced')) {
