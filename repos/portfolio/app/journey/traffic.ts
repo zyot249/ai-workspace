@@ -1,0 +1,126 @@
+import * as THREE from 'three'
+import { DARK_GLASS_HEX, lampIntensity, STREET_LIGHT_LUMINANCE } from './lamps'
+import { headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, pathPointAt } from './path'
+import { seeded } from './random'
+import { smoothstep } from './sky-mirror'
+import { gainFor } from './window-look'
+
+export const LANE_OFFSET = 1.5
+export const CAR_COUNT_FULL = 12
+export const CAR_COUNT_LOW_POWER = 6
+export const SPEED_MIN = 2.5
+export const SPEED_MAX = 5.5
+// Scale is 0 within CORNER_HIDE of an interior waypoint and 1 beyond CORNER_SHOW.
+export const CORNER_HIDE = 2.5
+export const CORNER_SHOW = 3.5
+// Scale is 0 at either path end and 1 from EDGE_SHOW in, so the wrap from 100 to 0 never pops.
+export const EDGE_SHOW = 4
+export const CAR_SIZE = { width: 0.45, height: 0.28, length: 0.9 } as const
+export const CAR_RIDE_HEIGHT = 0.08
+// Road surface is at y = -1.
+export const CAR_CENTER_Y = -1 + CAR_RIDE_HEIGHT + CAR_SIZE.height / 2
+export const FRONT_LIGHT_HEX = 0xfff1d6
+export const REAR_LIGHT_HEX = 0xff2a1a
+export const FRONT_LIGHT_THRESHOLD = 0.2
+export const REAR_MIN_INTENSITY = 0.2
+
+const CAR_SEED = 9300
+const LANES = [1, -1] as const
+// Jitter is a fraction of the spacing between cars, so same-lane gaps stay at least (1 - JITTER) * spacing.
+const START_JITTER = 0.7
+const BODY_COLORS = [0x3a3a40, 0x52525a, 0x6a6a72, 0x1f2a44, 0x4a1c1c, 0x2c2c30] as const
+const INTERIOR_DISTANCES = PATH_SEGMENTS.slice(1).map(segment => segment.cumStart)
+
+export interface Car {
+  lane: 1 | -1
+  speed: number
+  startDistance: number
+  bodyColor: number
+}
+
+export interface CarPose {
+  x: number
+  z: number
+  yaw: number
+  distance: number
+  scale: number
+}
+
+export function carCountFor(reducedMotion: boolean, lowPower: boolean): number {
+  if (reducedMotion) return 0
+  return lowPower ? CAR_COUNT_LOW_POWER : CAR_COUNT_FULL
+}
+
+// All cars in a lane share one speed, so they keep their spacing and never drive through each other.
+export function createCars(count: number): Car[] {
+  const perLane = Math.floor(count / 2)
+  const cars: Car[] = []
+  for (const [laneIndex, lane] of LANES.entries()) {
+    const speed = SPEED_MIN + (SPEED_MAX - SPEED_MIN) * seeded(CAR_SEED + laneIndex)
+    for (let i = 0; i < perLane; i++) {
+      const seed = CAR_SEED + 10 + laneIndex * 50 + i
+      const colorIndex = Math.floor(seeded(seed + 100) * BODY_COLORS.length)
+      cars.push({
+        lane,
+        speed,
+        startDistance: ((i + START_JITTER * seeded(seed)) / perLane) * PATH_TOTAL_LENGTH,
+        bodyColor: BODY_COLORS[colorIndex] ?? BODY_COLORS[0],
+      })
+    }
+  }
+  return cars
+}
+
+// Distance from the nearest interior waypoint, in path units: 0 hides the car, CORNER_SHOW shows it.
+export function cornerScale(distance: number): number {
+  let nearest = Infinity
+  for (const corner of INTERIOR_DISTANCES) nearest = Math.min(nearest, Math.abs(distance - corner))
+  return smoothstep(CORNER_HIDE, CORNER_SHOW, nearest)
+}
+
+export function edgeScale(distance: number): number {
+  return smoothstep(0, EDGE_SHOW, Math.min(distance, PATH_TOTAL_LENGTH - distance))
+}
+
+export function visibilityScale(distance: number): number {
+  return cornerScale(distance) * edgeScale(distance)
+}
+
+// The modulo runs in double precision before anything is written to a float matrix, so a large
+// `t` (performance.now() / 1000 after hours) does not lose precision.
+export function carPoseAt(car: Car, t: number, out: CarPose = { x: 0, z: 0, yaw: 0, distance: 0, scale: 0 }): CarPose {
+  const raw = (car.startDistance + car.lane * car.speed * t) % PATH_TOTAL_LENGTH
+  const distance = raw < 0 ? raw + PATH_TOTAL_LENGTH : raw
+  const point = pathPointAt(distance)
+  out.x = point.x + point.rightX * car.lane * LANE_OFFSET
+  out.z = point.z + point.rightZ * car.lane * LANE_OFFSET
+  out.yaw = headingFor(car.lane * point.dirX, car.lane * point.dirZ)
+  out.distance = distance
+  out.scale = visibilityScale(distance)
+  return out
+}
+
+export type CarLightKind = 'front' | 'rear'
+
+// Authored facing -Z: the front is at -Z, the rear at +Z, at body-center height.
+export const CAR_LIGHT_OFFSETS: readonly { x: number; z: number; kind: CarLightKind }[] = [
+  { x: -0.15, z: -0.46, kind: 'front' },
+  { x: 0.15, z: -0.46, kind: 'front' },
+  { x: -0.15, z: 0.46, kind: 'rear' },
+  { x: 0.15, z: 0.46, kind: 'rear' },
+]
+
+const litFront = new THREE.Color(FRONT_LIGHT_HEX).multiplyScalar(gainFor(FRONT_LIGHT_HEX, STREET_LIGHT_LUMINANCE))
+const litRear = new THREE.Color(REAR_LIGHT_HEX).multiplyScalar(gainFor(REAR_LIGHT_HEX, STREET_LIGHT_LUMINANCE))
+const darkGlass = new THREE.Color(DARK_GLASS_HEX)
+
+// Front lights follow the dusk ramp. Rear lights are running and brake lights: never below 20%.
+export function carLightIntensity(kind: CarLightKind, windowLitRatio: number): number {
+  const ramp = lampIntensity(FRONT_LIGHT_THRESHOLD, windowLitRatio)
+  return kind === 'rear' ? Math.max(REAR_MIN_INTENSITY, ramp) : ramp
+}
+
+// mix(dark glass, color * gain, intensity)
+export function carLightColor(kind: CarLightKind, windowLitRatio: number, out: THREE.Color): THREE.Color {
+  return out.copy(darkGlass).lerp(kind === 'rear' ? litRear : litFront, carLightIntensity(kind, windowLitRatio))
+}
