@@ -15,4 +15,11 @@ export const siteConfig: SiteConfig = {
     { category: 'Observability & Quality', items: ['OpenTelemetry', 'New Relic', 'Load Testing', 'Unit Testing', 'Jest', 'Code Review'] },
     { category: 'Engineering Practices', items: ['Git', 'SVN', 'AWS', 'SOLID', 'Design Patterns', 'Agile', 'Scrum'] },
   ],
+  music: {
+    volume: 0.4,
+    fadeSeconds: 1.5,
+    themeCrossfadeSeconds: 1.2,
+    light: [],
+    dark: [],
+  },
 }
