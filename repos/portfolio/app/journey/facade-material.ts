@@ -3,6 +3,9 @@ import {
   type FacadeGradientUniforms, gradientFragmentDeclarations, gradientFragmentPatch,
   gradientVertexDeclarations, gradientVertexPatch,
 } from './facade-gradient'
+import {
+  glassFragmentDeclarations, glassStatements, glassVertexDeclarations, glassVertexPatch,
+} from './facade-glass'
 import { FACADE_CELL } from './facade-grid'
 import { glslFloat, glslVec3, replaceOrThrow } from './shader-utils'
 import { WINDOW, WINDOW_PALETTE } from './window-look'
@@ -13,6 +16,7 @@ export interface FacadeUniforms extends FacadeGradientUniforms {
   uTime: { value: number }
   uFlicker: { value: number }
   uEmissiveScale: { value: number }
+  uSunVisibility: { value: number }
 }
 export type FacadeVariant = 'full' | 'lite'
 
@@ -20,11 +24,11 @@ const glsl = glslFloat
 const glsl3 = glslVec3
 const [warm, neutral, cool] = WINDOW_PALETTE
 
-// Neutral defaults: the gradient is off (strengths 0), so a caller that sets only the window uniforms renders as before.
+// Neutral defaults: the gradient and the glint are off (strengths 0), so a caller that sets only the window uniforms renders as before.
 export function createFacadeUniforms(flicker = 1): FacadeUniforms {
   return {
     uLit: { value: 0 }, uSkyTint: { value: new THREE.Color() },
-    uTime: { value: 0 }, uFlicker: { value: flicker }, uEmissiveScale: { value: 1 },
+    uTime: { value: 0 }, uFlicker: { value: flicker }, uEmissiveScale: { value: 1 }, uSunVisibility: { value: 0 },
     uAoStrength: { value: 0 }, uRimStrength: { value: 0 }, uBounce: { value: 0 },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color(0xffffff) },
     uBounceColor: { value: new THREE.Color(warm.hex) },
@@ -117,6 +121,7 @@ float facadeBuildingHash = windowHash11(vSeed);
 float facadeTintHash = 0.0;
 float facadeLit = 0.0;
 vec3 facadeWindowEmission = vec3(0.0);
+vec3 facadeGlass = vec3(0.0);
 if (abs(vFaceNormal.y) < 0.5 && vWindowed > 0.5) {
   vec2 uv = abs(vFaceNormal.x) > 0.5 ? vec2(vFacadePos.z, vFacadePos.y) : vec2(vFacadePos.x, vFacadePos.y);
   const vec2 CELL = vec2(${FACADE_CELL[0]}, ${FACADE_CELL[1]});
@@ -125,7 +130,8 @@ if (abs(vFaceNormal.y) < 0.5 && vWindowed > 0.5) {
   vec2 local = facadeLocal;
   ${filter}
   vec3 wallColor = diffuseColor.rgb;
-  vec3 glass = mix(wallColor, uSkyTint * 0.35, 0.6);
+  ${glassStatements(variant)}
+  facadeGlass = glass;
   windowCoverage = rect * (1.0 - distanceFade);
   vec3 linedWall = wallColor * (1.0 - 0.12 * floorBand * (1.0 - distanceFade));
   vec3 detail = mix(linedWall, glass, windowCoverage);
@@ -148,6 +154,8 @@ const debugOutput = `
   gl_FragColor = vec4(facadeCellHash, facadeBuildingHash, facadeTintHash, 1.0);
 #elif defined(FACADE_DEBUG_WINDOW) && FACADE_DEBUG_WINDOW == 3
   gl_FragColor = vec4(facadeWindowEmission, 1.0);
+#elif defined(FACADE_DEBUG_WINDOW) && FACADE_DEBUG_WINDOW == 4
+  gl_FragColor = vec4(facadeGlass, 1.0);
 #endif
 #if defined(FACADE_DEBUG_AO) && FACADE_DEBUG_AO == 1
   gl_FragColor = vec4(vec3(facadeAoEffective), 1.0);
@@ -164,10 +172,10 @@ export function createFacadeMaterial(options: {
   material.name = `journey-facade-${variant}`
   material.precision = 'highp'
   material.customProgramCacheKey = () =>
-    `facade-${variant}-windows-ab-${material.defines?.FACADE_DEBUG_WINDOW ?? 0}-ao-${material.defines?.FACADE_DEBUG_AO ?? 0}`
+    `facade-${variant}-windows-${variant === 'full' ? 'abc' : 'ab'}-${material.defines?.FACADE_DEBUG_WINDOW ?? 0}-ao-${material.defines?.FACADE_DEBUG_AO ?? 0}`
   material.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, uniforms)
-    shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <common>', '#include <common>\n' + vertexDeclarations + gradientVertexDeclarations(variant))
+    shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <common>', '#include <common>\n' + vertexDeclarations + gradientVertexDeclarations(variant) + glassVertexDeclarations(variant))
     shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <begin_vertex>', `
 #include <begin_vertex>
 vec3 facadeScale = vec3(1.0);
@@ -178,9 +186,9 @@ vFacadePos = (position + vec3(0.0, 0.5, 0.0)) * facadeScale;
 vFaceNormal = normal;
 vSeed = aSeed;
 vWindowed = aWindowed;
-${gradientVertexPatch(variant)}`)
+${gradientVertexPatch(variant)}${glassVertexPatch(variant)}`)
     shader.vertexShader = replaceOrThrow(shader.vertexShader, '#include <project_vertex>', '#include <project_vertex>\nvFacadeDepth = -mvPosition.z;')
-    shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <common>', '#include <common>\n' + fragmentDeclarations + gradientFragmentDeclarations(variant))
+    shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <common>', '#include <common>\n' + fragmentDeclarations + gradientFragmentDeclarations(variant) + glassFragmentDeclarations(variant))
     shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <color_fragment>', facadeColorPatch(variant))
     shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += facadeWindowEmission + facadeGradientEmission;')
     shader.fragmentShader = replaceOrThrow(shader.fragmentShader, '#include <dithering_fragment>', `#include <dithering_fragment>

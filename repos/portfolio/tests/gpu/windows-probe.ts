@@ -3,7 +3,8 @@ import { createFacadeMaterial, createFacadeUniforms } from '../../app/journey/fa
 import { createTestRenderer } from './gpu-utils'
 export interface WindowProbeInput {
   variant:'full'|'lite';seed:number;ratio:number;time?:number;flicker?:number;
-  emissiveScale?:number;mode?:0|1|2|3;pixelsPerCell?:number;depth?:number
+  emissiveScale?:number;mode?:0|1|2|3|4;pixelsPerCell?:number;depth?:number;
+  sunDir?:[number,number,number];sunVisibility?:number;viewAngle?:number
 }
 export interface WindowProbeResult {
   samples:number[][];shaderError:string|null;glError:number
@@ -17,7 +18,9 @@ export function probeWindows(input:WindowProbeInput):WindowProbeResult {
     magFilter:THREE.NearestFilter,depthBuffer:true,stencilBuffer:false})
   const geometry=new THREE.BoxGeometry(1,1,1)
   const uniforms={...createFacadeUniforms(input.flicker??0),uLit:{value:input.ratio},uSkyTint:{value:new THREE.Color(0xbfdbfe)},
-    uTime:{value:input.time??0},uEmissiveScale:{value:input.emissiveScale??1}}
+    uTime:{value:input.time??0},uEmissiveScale:{value:input.emissiveScale??1},
+    uSunDir:{value:new THREE.Vector3().fromArray(input.sunDir??[0,0,1]).normalize()},
+    uSunColor:{value:new THREE.Color(0xffe1a8)},uSunVisibility:{value:input.sunVisibility??0}}
   const material=createFacadeMaterial({color:0x353b5c,uniforms,variant:input.variant})
   if(input.mode) material.defines={...material.defines,FACADE_DEBUG_WINDOW:input.mode}
   const mesh=new THREE.InstancedMesh(geometry,material,1)
@@ -30,6 +33,18 @@ export function probeWindows(input:WindowProbeInput):WindowProbeResult {
   const depth=input.depth??4.5
   const camera=new THREE.OrthographicCamera(-6.4,6.4,5.5,-5.5,.1,200)
   camera.position.set(0,4.5,.5+depth);camera.lookAt(0,4.5,0)
+  if(input.mode===4) {
+    const x=.08,y=-1+25.5*.22,z=.5 // center of cell (col 40, row 25) on the +z face
+    const angle=(input.viewAngle??0)*Math.PI/180
+    camera.position.set(x+depth*Math.sin(angle),y,z+depth*Math.cos(angle))
+    camera.lookAt(x,y,z)
+    const sampleX=40*p+Math.floor(p/2),sampleY=25*p+Math.floor(p/2)
+    const offsetX=((sampleX+.5)/width-.5)*12.8
+    const offsetY=((sampleY+.5)/height-.5)*11
+    camera.left-=offsetX;camera.right-=offsetX
+    camera.top-=offsetY;camera.bottom-=offsetY
+    camera.updateProjectionMatrix()
+  }
   renderer.setPixelRatio(1);renderer.setSize(width,height,false)
   renderer.toneMapping=THREE.NoToneMapping
   renderer.outputColorSpace=THREE.LinearSRGBColorSpace
