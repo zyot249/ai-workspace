@@ -107,6 +107,7 @@ it('wires the gradient uniforms and the shadow field into the scene', () => {
   const scene = readFileSync(new URL('../../app/journey/scene.ts', import.meta.url), 'utf8')
   expect(scene).toContain('facadeLookFor(state, sky.sunVisibility)')
   expect(scene).toContain('facade.uSunDir.value.copy(sky.sunDirection)')
+  expect(scene).toContain('facade.uSunVisibility.value = sky.sunVisibility')
   expect(scene).toContain('writeLayerShadows(shadows')
   expect(scene).toContain('shadows.commit()')
   expect(scene).toContain('centerLine.renderOrder = ROAD_MARKING_RENDER_ORDER')
