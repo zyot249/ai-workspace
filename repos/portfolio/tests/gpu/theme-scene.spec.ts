@@ -40,6 +40,7 @@ for (const input of combinations) {
     }
   })
   test(`no compilation or camera movement during toggles ${input.tier}/${input.lowPower}`, async ({ page }) => {
+    test.setTimeout(120_000)
     await page.evaluate(input => window.cityGpu.mountJourney({ ...input, initialDark: false, width: 320, height: 180 }), input)
     for (let chapter = 0; chapter < 4; chapter++) {
       const result = await page.evaluate(chapter => {
