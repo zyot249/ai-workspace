@@ -12,6 +12,7 @@ import { measureRenderCost } from './render-cost'
 import { roadProbe } from './road-probe'
 import { skyProbe } from './sky-probe'
 import { probeWindows } from './windows-probe'
+import { wetRoadProbe } from './wet-road-probe'
 
 let journey: JourneyScene | null = null
 let renderer: THREE.WebGLRenderer | null = null
@@ -36,6 +37,7 @@ function currentDiagnostics() {
 const cityGpu = {
   sky: skyProbe,
   road: roadProbe,
+  wetRoad: wetRoadProbe,
   probeFacade,
   probeGradient,
   probeWindows,
