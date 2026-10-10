@@ -265,3 +265,74 @@ describe('browser support', () => {
     expect(api.status.value).toBe('idle')
   })
 })
+
+describe('state-machine races', () => {
+  function deferPlay(): { resolve: () => void } {
+    let resolve!: () => void
+    const gate = new Promise<void>((done) => {
+      resolve = done
+    })
+    fake.play.mockImplementationOnce(async () => {
+      await gate
+      fake.force('playing')
+    })
+    return { resolve }
+  }
+
+  it('after a remount, turning music off keeps it off on the next gesture', async () => {
+    localStorage.setItem('music', 'on')
+    const first = mountHost()
+    fire('pointerdown')
+    await flushPromises()
+    first.wrapper.unmount()
+    wrappers = []
+    const second = mountHost()
+    await flushPromises()
+    expect(second.api.status.value).toBe('playing')
+    await second.api.toggle()
+    expect(localStorage.getItem('music')).toBe('off')
+    fire('pointerdown')
+    await flushPromises()
+    expect(fake.play).toHaveBeenCalledTimes(2)
+    expect(localStorage.getItem('music')).toBe('off')
+  })
+
+  it('a toggle while a start is in flight cancels it', async () => {
+    const { api } = mountHost()
+    const gate = deferPlay()
+    const starting = api.toggle()
+    await flushPromises()
+    await api.toggle()
+    gate.resolve()
+    await starting
+    await flushPromises()
+    expect(fake.play).toHaveBeenCalledTimes(1)
+    expect(fake.pause).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem('music')).toBe('off')
+    expect(api.status.value).not.toBe('playing')
+  })
+
+  it('unmounting during a start leaves nothing playing or listening', async () => {
+    localStorage.setItem('music', 'on')
+    const add = vi.spyOn(window, 'addEventListener')
+    const remove = vi.spyOn(window, 'removeEventListener')
+    const { wrapper, api } = mountHost()
+    const gate = deferPlay()
+    fire('pointerdown')
+    await flushPromises()
+    wrapper.unmount()
+    wrappers = []
+    gate.resolve()
+    await flushPromises()
+    expect(fake.pause).toHaveBeenCalled()
+    expect(fake.status).not.toBe('playing')
+    const gestureCalls = (spy: typeof add) => spy.mock.calls.filter(call => (GESTURES as readonly string[]).includes(call[0])).length
+    expect(gestureCalls(add)).toBe(gestureCalls(remove))
+    fire('pointerdown')
+    await flushPromises()
+    expect(fake.play).toHaveBeenCalledTimes(1)
+    const before = api.status.value
+    fake.force('paused')
+    expect(api.status.value).toBe(before)
+  })
+})

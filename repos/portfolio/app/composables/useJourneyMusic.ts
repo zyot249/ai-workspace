@@ -67,6 +67,7 @@ export function useJourneyMusic(isDark: Ref<boolean>) {
   let expectPause = false
   let resumeOnShow = false
   let starting = false
+  let unmounted = false
   let bound: MusicPlayer | null = null
   let unsubscribe: (() => void) | null = null
 
@@ -76,18 +77,20 @@ export function useJourneyMusic(isDark: Ref<boolean>) {
   }
 
   function sync(player: MusicPlayer): void {
+    if (unmounted) return
     current.value = player.current
-    const interrupted = player.status === 'paused' && !expectPause && choice === 'on'
+    const interrupted = player.status === 'paused' && !expectPause && !starting && choice === 'on'
     const refused = player.status === 'idle' && choice === 'on' && !starting
     if (interrupted || refused) {
       arm()
       return
     }
+    disarm()
     status.value = player.status
   }
 
   function bind(player: MusicPlayer): void {
-    if (bound === player) return
+    if (unmounted || bound === player) return
     unsubscribe?.()
     bound = player
     unsubscribe = player.onChange(() => sync(player))
@@ -115,11 +118,12 @@ export function useJourneyMusic(isDark: Ref<boolean>) {
   // Not `{ once: true }`: the first pointerdown may land on the music button
   // itself, and that one must not use up the listener or start the music.
   function onGesture(event: Event): void {
-    if (isInsideControl(event.target)) return
+    if (isInsideControl(event.target) || choice !== 'on') return
     void start()
   }
 
   function arm(): void {
+    if (unmounted) return
     status.value = 'armed'
     if (armed) return
     armed = true
@@ -133,18 +137,27 @@ export function useJourneyMusic(isDark: Ref<boolean>) {
   }
 
   async function start(): Promise<void> {
+    if (starting || unmounted || choice !== 'on') return
     disarm()
     // While starting, an idle player is not a refusal yet; the sync after play() decides.
     starting = true
     try {
       const player = await ensurePlayer()
+      if (unmounted) return
       await player.play()
       starting = false
+      if (unmounted) {
+        if (player.status === 'playing') void player.pause()
+        return
+      }
       sync(player)
+      // The visitor turned music off while this start was in flight.
+      if (choice !== 'on' && player.status === 'playing') await pausePlayer()
     } catch (error) {
-      starting = false
       console.warn('[music] could not start playback:', error)
-      status.value = 'error'
+      if (!unmounted) status.value = 'error'
+    } finally {
+      starting = false
     }
   }
 
@@ -162,6 +175,12 @@ export function useJourneyMusic(isDark: Ref<boolean>) {
   async function toggle(): Promise<void> {
     resumeOnShow = false
     if (status.value === 'error') return
+    if (starting) {
+      saveChoice('off')
+      disarm()
+      status.value = 'idle'
+      return
+    }
     if (status.value === 'playing') {
       saveChoice('off')
       await pausePlayer()
@@ -219,14 +238,12 @@ export function useJourneyMusic(isDark: Ref<boolean>) {
   })
 
   onBeforeUnmount(() => {
+    unmounted = true
     document.removeEventListener('visibilitychange', onVisibilityChange)
     disarm()
     unsubscribe?.()
     const player = shared.value.player
-    if (player?.status === 'playing') {
-      expectPause = true
-      void player.pause()
-    }
+    if (player?.status === 'playing') void player.pause()
   })
 
   return { status: readonly(status), current: readonly(current), supported: readonly(supported), toggle, next }
