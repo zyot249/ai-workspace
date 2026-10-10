@@ -98,6 +98,8 @@ export interface PlayRules {
   readonly failing: Set<string>
   /** When true, every `play()` rejects with `NotAllowedError`. */
   blocked: boolean
+  /** When true, `play()` stays pending until `pause()` rejects it with `AbortError`, like a browser. */
+  deferPlay: boolean
 }
 
 function domError(name: string): Error {
@@ -111,6 +113,7 @@ export class FakeAudio implements AudioElementLike {
   paused = true
   playCalls = 0
   pauseCalls = 0
+  private abortPending: (() => void) | null = null
   private readonly rules: PlayRules
   private readonly listeners: Record<'ended' | 'error', Set<() => void>> = { ended: new Set(), error: new Set() }
 
@@ -120,6 +123,11 @@ export class FakeAudio implements AudioElementLike {
 
   play(): Promise<void> {
     this.playCalls += 1
+    if (this.rules.deferPlay) {
+      return new Promise<void>((_resolve, reject) => {
+        this.abortPending = () => reject(domError('AbortError'))
+      })
+    }
     if (this.rules.blocked) return Promise.reject(domError('NotAllowedError'))
     if (this.rules.failing.has(this.src)) return Promise.reject(domError('NotSupportedError'))
     this.paused = false
@@ -128,6 +136,9 @@ export class FakeAudio implements AudioElementLike {
   pause(): void {
     this.pauseCalls += 1
     this.paused = true
+    const abort = this.abortPending
+    this.abortPending = null
+    abort?.()
   }
   addEventListener(type: 'ended' | 'error', listener: () => void): void {
     this.listeners[type].add(listener)
@@ -152,7 +163,7 @@ export function createFakeEnv(options: { audioSession?: { type: string } } = {})
   const ctx = new FakeContext()
   const audios: FakeAudio[] = []
   const warnings: unknown[][] = []
-  const rules: PlayRules = { failing: new Set(), blocked: false }
+  const rules: PlayRules = { failing: new Set(), blocked: false, deferPlay: false }
   const env: PlayerEnv = {
     createContext: () => ctx,
     createAudio: () => {

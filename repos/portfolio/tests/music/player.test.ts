@@ -233,3 +233,47 @@ describe('dispose', () => {
     expect(audios.every(audio => audio.paused)).toBe(true)
   })
 })
+
+describe('cancelled starts', () => {
+  it('does not mark a track failed or load the next one when a pending play is paused', async () => {
+    const { player, ctx, audios, warnings, rules } = setup(['a', 'b', 'c'])
+    await player.play()
+    rules.deferPlay = true
+    audios[0].emit('ended')
+    await flush()
+    expect(audios[0].src).toBe('/audio/b.mp3')
+    ctx.setState('interrupted')
+    await flush()
+    expect(warnings).toHaveLength(0)
+    expect(audios[0].src).toBe('/audio/b.mp3')
+    expect(audios[0].paused).toBe(true)
+    expect(player.status).toBe('paused')
+  })
+
+  it('does not warn or load a second track when dispose runs during the first load', async () => {
+    const { player, audios, warnings, rules } = setup(['a', 'b'])
+    rules.deferPlay = true
+    const started = player.play()
+    await flush()
+    player.dispose()
+    await started
+    await flush()
+    expect(warnings).toHaveLength(0)
+    expect(audios[0].src).toBe('/audio/a.mp3')
+    expect(audios[0].playCalls).toBe(1)
+  })
+
+  it('plays again on a one-track list after a cancelled track end', async () => {
+    const { player, ctx, audios, warnings, rules } = setup(['only'])
+    await player.play()
+    rules.deferPlay = true
+    audios[0].emit('ended')
+    await flush()
+    ctx.setState('interrupted')
+    await flush()
+    rules.deferPlay = false
+    await player.play()
+    expect(warnings).toHaveLength(0)
+    expect(player.status).toBe('playing')
+  })
+})

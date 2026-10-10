@@ -67,7 +67,7 @@ const RESUME_TIMEOUT_MS = 1000
 
 const SILENT: FadePlan = { startValue: 0, endValue: 0, startTime: 0, endTime: 0 }
 
-type StartResult = 'started' | 'blocked' | 'failed'
+type StartResult = 'started' | 'blocked' | 'failed' | 'cancelled'
 
 interface Deck {
   readonly audio: AudioElementLike
@@ -205,8 +205,19 @@ export function createMusicPlayer(
     deck.trackIndex = index
   }
 
-  /** Load and play the first playable track at or after `fromIndex`. */
-  async function startTrack(deck: Deck, trackTheme: Theme, fromIndex: number, time: number): Promise<StartResult> {
+  /**
+   * Load and play the first playable track at or after `fromIndex`. Returns
+   * 'cancelled' as soon as `token` is no longer the current generation, or when
+   * the browser aborts play() because the element was paused. A cancelled call
+   * never marks a track failed and never sets `deck.playing`.
+   */
+  async function startTrack(
+    deck: Deck,
+    trackTheme: Theme,
+    fromIndex: number,
+    time: number,
+    token: number,
+  ): Promise<StartResult> {
     const list = listFor(config, trackTheme)
     deck.starting = true
     try {
@@ -217,9 +228,11 @@ export function createMusicPlayer(
         load(deck, trackTheme, index, track, step === 0 ? time : 0)
         try {
           await deck.audio.play()
+          if (token !== generation) return 'cancelled'
           deck.playing = true
           return 'started'
         } catch (error) {
+          if (token !== generation || errorName(error) === 'AbortError') return 'cancelled'
           if (errorName(error) === 'NotAllowedError') return 'blocked'
           markFailed(track, error)
         }
@@ -230,9 +243,9 @@ export function createMusicPlayer(
     }
   }
 
-  function settle(deck: Deck, result: StartResult): void {
+  function settle(deck: Deck, result: Exclude<StartResult, 'cancelled'>): void {
     if (result === 'started') {
-      positions = savePosition(positions, deck.theme, { index: deck.trackIndex, time: deck.audio.currentTime })
+      snapshot(deck)
       setCurrent(trackOf(deck))
       setStatus('playing')
       return
@@ -245,8 +258,8 @@ export function createMusicPlayer(
   /** Start `index` on a deck that is already playing, at the deck's current gain. */
   async function continueOn(deck: Deck, index: number): Promise<void> {
     const token = generation
-    const result = await startTrack(deck, deck.theme, index, 0)
-    if (token !== generation) return
+    const result = await startTrack(deck, deck.theme, index, 0, token)
+    if (result === 'cancelled' || token !== generation) return
     settle(deck, result)
   }
 
@@ -356,8 +369,8 @@ export function createMusicPlayer(
     if (!deck) return
     stopOthers(deck)
     const position = positionFor(positions, theme)
-    const result = await startTrack(deck, theme, position.index, position.time)
-    if (token !== generation) return
+    const result = await startTrack(deck, theme, position.index, position.time, token)
+    if (result === 'cancelled' || token !== generation) return
     settle(deck, result)
     if (result === 'started') ramp(deck, config.volume, config.fadeSeconds)
   }
