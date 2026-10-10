@@ -10,6 +10,7 @@ import './post-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 import { measureRenderCost } from './render-cost'
 import { skyProbe } from './sky-probe'
+import { probeStreetFog, probeStreetHalo, probeStreetHeads, probeStreetPools, probeTraffic, streetDrawCalls, streetState } from './street-probe'
 import { probeWindows } from './windows-probe'
 
 let journey: JourneyScene | null = null
@@ -41,6 +42,13 @@ const cityGpu = {
   probeContactShadow,
   contactShadowDrawCalls,
   contactShadowFrameDelta,
+  probeStreetFog,
+  probeStreetHeads,
+  probeStreetPools,
+  probeStreetHalo,
+  probeTraffic,
+  streetState,
+  streetDrawCalls,
   mountComponent,
   breakRestoredComponent,
   componentStatus,
