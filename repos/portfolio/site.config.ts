@@ -19,7 +19,21 @@ export const siteConfig: SiteConfig = {
     volume: 0.4,
     fadeSeconds: 1.5,
     themeCrossfadeSeconds: 1.2,
-    light: [],
-    dark: [],
+    light: [
+      {
+        src: '/audio/IN LOVE KaRAOKE - LOW G JT LOWG Justatee.mp3',
+        title: 'IN LOVE',
+        artist: 'LOW G JT LOWG Justatee',
+        credit: 'Music by Youtube Audio Library',
+      },
+    ],
+    dark: [
+      {
+        src: '/audio/IN LOVE KaRAOKE - LOW G JT LOWG Justatee.mp3',
+        title: 'IN LOVE',
+        artist: 'LOW G JT LOWG Justatee',
+        credit: 'Music by Youtube Audio Library',
+      },
+    ],
   },
 }
