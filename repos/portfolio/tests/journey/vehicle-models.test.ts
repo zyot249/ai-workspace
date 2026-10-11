@@ -51,21 +51,25 @@ describe('loadVehicleModels', () => {
     disposeVehicleModels(models)
   })
 
-  it('applies parent node transforms to the parts', async () => {
-    // The inner scene sits 0.5 low and 0.4 back; the parent offset cancels that, so only the baked
-    // world matrix puts the bounds back on the spec.
-    const nested = new THREE.Group()
-    const inner = fakeScene('sedan')
-    inner.position.set(0, -0.5, -0.4)
+  it('applies every ancestor transform to the parts', async () => {
+    // Three ancestors with different offsets. Their net shift is (0, +0.1, -0.1) model units, small enough
+    // to stay inside the spec tolerance but large enough to tell the world matrix from the local one.
+    const netShift = { y: 0.05 + 0.3 - 0.25, z: 0.1 - 0.2 }
+    const root = new THREE.Group()
+    root.position.set(0, 0.05, 0)
     const offset = new THREE.Group()
-    offset.position.set(0, 0.5, 0.4)
+    offset.position.set(0, 0.3, 0.1)
+    const inner = fakeScene('sedan')
+    inner.position.set(0, -0.25, -0.2)
     offset.add(inner)
-    nested.add(offset)
-    const models = await loadVehicleModels(fakeSource({ sedan: nested }))
+    root.add(offset)
+    const models = await loadVehicleModels(fakeSource({ sedan: root }))
     const box = models.geometries.sedan.boundingBox!
-    expect(box.min.y).toBeCloseTo(0, 5)
-    expect(box.max.y).toBeCloseTo(MODEL_HEIGHT * VEHICLE_SCALE, 5)
-    expect(box.min.z).toBeCloseTo(-VEHICLE_SPECS.sedan.frontZ * VEHICLE_SCALE, 5)
+    const { frontZ, rearZ } = VEHICLE_SPECS.sedan
+    expect(box.min.y).toBeCloseTo(netShift.y * VEHICLE_SCALE, 5)
+    expect(box.max.y).toBeCloseTo((MODEL_HEIGHT + netShift.y) * VEHICLE_SCALE, 5)
+    expect(box.min.z).toBeCloseTo(-(frontZ + netShift.z) * VEHICLE_SCALE, 5)
+    expect(box.max.z).toBeCloseTo(-(rearZ + netShift.z) * VEHICLE_SCALE, 5)
     disposeVehicleModels(models)
   })
 
