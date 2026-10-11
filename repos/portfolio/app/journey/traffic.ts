@@ -199,14 +199,20 @@ const RATIO_QUANTUM = 1e-3
 const LIGHTS_PER_CAR = CAR_LIGHT_OFFSETS.length
 
 export interface Traffic {
-  // Stable parent of the meshes below. The scene adds it once; `useModels` swaps its children.
+  // Stable parent of the meshes below. The scene adds it once; the model swap changes its children.
   readonly group: THREE.Group
-  // Car bodies, then car lights. Box bodies and lights at first (two meshes), then one body mesh per
-  // vehicle type that has cars plus the lights (up to four). Empty when there are no cars.
+  // The meshes that draw: car bodies, then car lights. Box bodies and lights at first (two meshes), then
+  // one body mesh per vehicle type that has cars plus the lights (up to four). Empty when there are no
+  // cars. Staged model meshes are not listed until `showModels`.
   readonly objects: readonly THREE.InstancedMesh[]
-  // Replaces the box bodies with the vehicle models. Ignored when there are no cars, after dispose, or
-  // after the first call. Traffic owns the models from then on and disposes them in `dispose`.
-  useModels(models: VehicleModels): void
+  // Builds the model body meshes and adds them to the group hidden, so their shaders can compile while
+  // the box cars keep drawing. Ignored when there are no cars, after dispose, or after the first call.
+  // Traffic owns the models from then on and disposes them in `discardModels` or `dispose`.
+  stageModels(models: VehicleModels): void
+  // Shows the staged meshes and drops the box bodies. Does nothing unless models are staged.
+  showModels(): void
+  // Removes the staged meshes and disposes the models. The box cars stay. Does nothing unless models are staged.
+  discardModels(): void
   update(windowLitRatio: number, t: number): void
   dispose(): void
 }
@@ -230,7 +236,7 @@ interface BodySet {
 }
 
 function createEmptyTraffic(group: THREE.Group): Traffic {
-  return { group, objects: [], useModels() {}, update() {}, dispose() {} }
+  return { group, objects: [], stageModels() {}, showModels() {}, discardModels() {}, update() {}, dispose() {} }
 }
 
 export function createTraffic(cars: readonly Car[]): Traffic {
@@ -256,8 +262,11 @@ export function createTraffic(cars: readonly Car[]): Traffic {
 
   let sets: BodySet[] = [{ mesh: boxBodies, carIndices: cars.map((_, i) => i), baseY: CAR_CENTER_Y }]
   let offsetsFor: (car: Car) => readonly VehicleLightOffset[] = () => CAR_LIGHT_OFFSETS
-  let models: VehicleModels | null = null
-  let modelMaterial: THREE.MeshStandardMaterial | null = null
+  // Models move from staged to shown, or from staged to discarded. Only the first stageModels call counts.
+  interface ModelState { models: VehicleModels; material: THREE.MeshStandardMaterial; sets: BodySet[] }
+  let staged: ModelState | null = null
+  let shown: ModelState | null = null
+  let modelsOffered = false
   let disposed = false
 
   // Stable array, rebuilt on swap. It stays valid when a caller moves the meshes to another parent.
@@ -289,6 +298,11 @@ export function createTraffic(cars: readonly Car[]): Traffic {
     boxMaterial.dispose()
   }
 
+  function releaseModels(state: ModelState) {
+    disposeVehicleModels(state.models)
+    state.material.dispose()
+  }
+
   function createModelSets(next: VehicleModels, material: THREE.MeshStandardMaterial): BodySet[] {
     const indicesByType = new Map<VehicleType, number[]>()
     cars.forEach((car, i) => indicesByType.set(car.type, [...(indicesByType.get(car.type) ?? []), i]))
@@ -313,16 +327,31 @@ export function createTraffic(cars: readonly Car[]): Traffic {
   return {
     group,
     get objects() { return meshes },
-    useModels(next) {
-      if (disposed || models) return
+    stageModels(next) {
+      if (disposed || modelsOffered) return
+      modelsOffered = true
       const material = new THREE.MeshStandardMaterial({ map: next.map, roughness: 0.55, metalness: 0.3 })
       material.name = 'journey-street-car-body'
-      sets = createModelSets(next, material)
-      models = next
-      modelMaterial = material
+      const modelSets = createModelSets(next, material)
+      for (const set of modelSets) set.mesh.visible = false
+      group.add(...modelSets.map(set => set.mesh))
+      staged = { models: next, material, sets: modelSets }
+    },
+    showModels() {
+      if (disposed || !staged) return
+      shown = staged
+      staged = null
+      for (const set of shown.sets) set.mesh.visible = true
+      sets = shown.sets
       offsetsFor = car => vehicleLightOffsets(car.type)
       releaseBoxBodies()
       fillGroup()
+    },
+    discardModels() {
+      if (disposed || !staged) return
+      group.remove(...staged.sets.map(set => set.mesh))
+      releaseModels(staged)
+      staged = null
     },
     update(windowLitRatio, t) {
       const key = Math.round(windowLitRatio / RATIO_QUANTUM)
@@ -356,12 +385,9 @@ export function createTraffic(cars: readonly Car[]): Traffic {
     dispose() {
       if (disposed) return
       disposed = true
-      if (models) {
-        disposeVehicleModels(models)
-        modelMaterial?.dispose()
-      } else {
-        releaseBoxBodies()
-      }
+      if (staged) releaseModels(staged)
+      if (shown) releaseModels(shown)
+      else releaseBoxBodies()
       lights.geometry.dispose()
       ;(lights.material as THREE.Material).dispose()
     },

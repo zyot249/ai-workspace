@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { STREET_NAMES } from '../../app/journey/lamps'
 import { REFLECT_LAYER } from '../../app/journey/reflect-layer'
+import { WET_ROAD_NAME } from '../../app/journey/wet-road'
 
 const GPU_TEST_TIMEOUT_MS = 120_000
 const TYPES = ['sedan', 'suv', 'truck'] as const
@@ -15,11 +16,19 @@ test.beforeEach(async ({ page }) => {
 for (const [tier, lowPower, perType] of [['full', false, 4], ['lite', true, 2]] as const) {
   test(`${tier}: the real GLBs load, replace the box cars, reflect and cost eight street draw calls`, async ({ page }) => {
     test.setTimeout(GPU_TEST_TIMEOUT_MS)
-    const result = await page.evaluate(async ({ tier, lowPower, names, layer, types }) => {
+    const result = await page.evaluate(async ({ tier, lowPower, names, layer, types, wetRoadName }) => {
       window.cityGpu.mountJourney({ tier, lowPower, vehicles: true })
       await window.cityGpu.waitForVehicles()
-      const frames = [0, 1, 2, 3].map(chapter => window.cityGpu.renderJourney({ chapter }))
       const scene = window.cityGpu.getJourneyContext().scene
+      type Reflection = { stats: { passes: number } } | undefined
+      const reflectionPasses = () =>
+        (scene.getObjectByName(wetRoadName)?.userData.wetRoad as Reflection)?.stats.passes ?? null
+      // The models show only after their shaders compiled, so drawing them must build no new program.
+      const programsBefore = window.cityGpu.journeyState().programs
+      const passesBefore = reflectionPasses()
+      const frames = [0, 1, 2, 3].map(chapter => window.cityGpu.renderJourney({ chapter }))
+      const programsAfter = window.cityGpu.journeyState().programs
+      const passesAfter = reflectionPasses()
       type Probe = { count: number; layers: { isEnabled(layer: number): boolean } } | undefined
       const bodies = types.map(type => {
         const mesh = scene.getObjectByName(`${names.carBodies}-${type}`) as unknown as Probe
@@ -28,8 +37,8 @@ for (const [tier, lowPower, perType] of [['full', false, 4], ['lite', true, 2]] 
       const box = scene.getObjectByName(names.carBodies)
       const calls = window.cityGpu.streetDrawCalls()
       window.cityGpu.dispose()
-      return { frames, bodies, hasBox: Boolean(box), calls }
-    }, { tier, lowPower, names: STREET_NAMES, layer: REFLECT_LAYER, types: TYPES })
+      return { frames, bodies, hasBox: Boolean(box), calls, programsBefore, programsAfter, passesBefore, passesAfter }
+    }, { tier, lowPower, names: STREET_NAMES, layer: REFLECT_LAYER, types: TYPES, wetRoadName: WET_ROAD_NAME })
     for (const frame of result.frames) {
       expect(frame.shaderError).toBeNull()
       expect(frame.glError).toBe(0)
@@ -39,6 +48,14 @@ for (const [tier, lowPower, perType] of [['full', false, 4], ['lite', true, 2]] 
     expect(result.calls.shaderError).toBeNull()
     expect(result.calls.glError).toBe(0)
     expect(result.calls.calls).toBe(STREET_DRAW_CALLS_WITH_VEHICLES)
+    expect(result.programsAfter).toEqual(result.programsBefore)
+    if (lowPower) {
+      // The direct pipeline has no reflection pass.
+      expect(result.passesBefore).toBeNull()
+    } else {
+      // The reflection pass ran on these frames, so its program variant is covered by the check above too.
+      expect(result.passesAfter!).toBeGreaterThan(result.passesBefore!)
+    }
   })
 }
 

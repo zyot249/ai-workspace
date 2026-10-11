@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { mergeVehicleParts, type VehiclePart } from './vehicle-geometry'
 import { VEHICLE_SCALE, VEHICLE_SPECS, VEHICLE_TYPES, type VehicleType, vehicleBounds } from './vehicle-specs'
 
+// Absolute path: it assumes the site is deployed at the domain root (no Nuxt `app.baseURL`).
 export const VEHICLE_MODEL_DIR = '/models/vehicles/'
 // How far a merged model may drift from its measured bounds, in scene units, before the load is rejected.
 export const VEHICLE_BOUNDS_TOLERANCE = 0.05
@@ -88,22 +89,34 @@ export function disposeVehicleModels(models: VehicleModels): void {
   models.map.dispose()
 }
 
+// The part of `Traffic` the swap drives. Kept structural so tests can pass fakes without WebGL.
+export interface VehicleModelTarget {
+  stageModels(models: VehicleModels): void
+  showModels(): void
+  discardModels(): void
+}
+
 export interface AttachVehicleModelsOptions {
-  traffic: { useModels(models: VehicleModels): void }
+  traffic: VehicleModelTarget
   load: () => Promise<VehicleModels>
   isDisposed: () => boolean
+  // Runs after the model meshes are staged (hidden) and before they show. The scene compiles their shaders here.
+  warm?: () => Promise<void>
   onReady?: () => void
+  // Called at most once, and never after the scene is disposed.
   onError?: (error: unknown) => void
 }
 
-// Never rejects: a failed load or a bad swap leaves the traffic as it is, which is the box cars.
+// Never rejects. A failed load, a rejected stage, or a failed warmup leaves the box cars. After the scene
+// is disposed it reports nothing and shows nothing.
 export async function attachVehicleModels(options: AttachVehicleModelsOptions): Promise<void> {
-  const { traffic, load, isDisposed, onReady, onError } = options
+  const { traffic, load, isDisposed, warm, onReady, onError } = options
+  const report = (error: unknown) => { if (!isDisposed()) onError?.(error) }
   let models: VehicleModels
   try {
     models = await load()
   } catch (error) {
-    onError?.(error)
+    report(error)
     return
   }
   if (isDisposed()) {
@@ -111,10 +124,23 @@ export async function attachVehicleModels(options: AttachVehicleModelsOptions): 
     return
   }
   try {
-    traffic.useModels(models)
+    traffic.stageModels(models)
   } catch (error) {
     disposeVehicleModels(models)
-    onError?.(error)
+    report(error)
+    return
+  }
+  // From here traffic owns the models: `discardModels` disposes them.
+  try {
+    await warm?.()
+    if (isDisposed()) {
+      traffic.discardModels()
+      return
+    }
+    traffic.showModels()
+  } catch (error) {
+    traffic.discardModels()
+    report(error)
     return
   }
   onReady?.()

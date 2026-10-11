@@ -146,44 +146,134 @@ describe('attachVehicleModels', () => {
     return { geometries, map: new THREE.Texture() }
   }
 
-  it('hands the loaded models to traffic and reports ready', async () => {
+  function fakeTraffic(log: string[] = []) {
+    return {
+      stageModels: vi.fn((_models: VehicleModels) => { log.push('stage') }),
+      showModels: vi.fn(() => { log.push('show') }),
+      discardModels: vi.fn(() => { log.push('discard') }),
+    }
+  }
+
+  it('stages the models, warms them up, then shows them and reports ready', async () => {
     const models = stubModels()
-    const traffic = { useModels: vi.fn() }
+    const log: string[] = []
+    const traffic = fakeTraffic(log)
+    const warm = vi.fn(async () => { log.push('warm') })
+    const onReady = vi.fn(() => { log.push('ready') })
+    await attachVehicleModels({ traffic, load: async () => models, isDisposed: () => false, warm, onReady })
+    expect(traffic.stageModels).toHaveBeenCalledWith(models)
+    expect(log).toEqual(['stage', 'warm', 'show', 'ready'])
+  })
+
+  it('shows the models only after the warmup has finished', async () => {
+    const log: string[] = []
+    const traffic = fakeTraffic(log)
+    let finishWarmup: () => void = () => {}
+    const warm = () => new Promise<void>(resolve => { finishWarmup = resolve })
+    const attached = attachVehicleModels({ traffic, load: async () => stubModels(), isDisposed: () => false, warm })
+    await vi.waitFor(() => expect(traffic.stageModels).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(traffic.showModels).not.toHaveBeenCalled()
+    finishWarmup()
+    await attached
+    expect(log).toEqual(['stage', 'show'])
+  })
+
+  it('shows the models straight away when there is no warmup step', async () => {
+    const traffic = fakeTraffic()
     const onReady = vi.fn()
-    await attachVehicleModels({ traffic, load: async () => models, isDisposed: () => false, onReady })
-    expect(traffic.useModels).toHaveBeenCalledWith(models)
+    await attachVehicleModels({ traffic, load: async () => stubModels(), isDisposed: () => false, onReady })
+    expect(traffic.showModels).toHaveBeenCalledTimes(1)
     expect(onReady).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the box cars and reports the error once when the load fails', async () => {
-    const traffic = { useModels: vi.fn() }
+    const traffic = fakeTraffic()
     const onError = vi.fn()
     const onReady = vi.fn()
     const failure = new Error('404')
     await expect(attachVehicleModels({
       traffic, load: async () => { throw failure }, isDisposed: () => false, onReady, onError,
     })).resolves.toBeUndefined()
-    expect(traffic.useModels).not.toHaveBeenCalled()
+    expect(traffic.stageModels).not.toHaveBeenCalled()
     expect(onReady).not.toHaveBeenCalled()
     expect(onError).toHaveBeenCalledTimes(1)
     expect(onError).toHaveBeenCalledWith(failure)
   })
 
-  it('keeps the box cars when traffic rejects the models', async () => {
+  it('reports nothing when the load fails after the scene was disposed', async () => {
+    const traffic = fakeTraffic()
     const onError = vi.fn()
-    const traffic = { useModels: () => { throw new Error('bad models') } }
-    await attachVehicleModels({ traffic, load: async () => stubModels(), isDisposed: () => false, onError })
+    await expect(attachVehicleModels({
+      traffic, load: async () => { throw new Error('aborted') }, isDisposed: () => true, onError,
+    })).resolves.toBeUndefined()
+    expect(onError).not.toHaveBeenCalled()
+    expect(traffic.stageModels).not.toHaveBeenCalled()
+  })
+
+  it('keeps the box cars and disposes the models when traffic rejects them', async () => {
+    const models = stubModels()
+    const mapSpy = vi.spyOn(models.map, 'dispose')
+    const onError = vi.fn()
+    const traffic = { ...fakeTraffic(), stageModels: () => { throw new Error('bad models') } }
+    await attachVehicleModels({ traffic, load: async () => models, isDisposed: () => false, onError })
     expect(onError).toHaveBeenCalledTimes(1)
+    expect(mapSpy).toHaveBeenCalledTimes(1)
+    expect(traffic.showModels).not.toHaveBeenCalled()
+  })
+
+  it('discards the staged models and keeps the box cars when the warmup fails', async () => {
+    const traffic = fakeTraffic()
+    const onError = vi.fn()
+    const onReady = vi.fn()
+    const failure = new Error('compile failed')
+    await expect(attachVehicleModels({
+      traffic, load: async () => stubModels(), isDisposed: () => false, onError, onReady,
+      warm: async () => { throw failure },
+    })).resolves.toBeUndefined()
+    expect(traffic.discardModels).toHaveBeenCalledTimes(1)
+    expect(traffic.showModels).not.toHaveBeenCalled()
+    expect(onReady).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledWith(failure)
+  })
+
+  it('discards the staged models and shows nothing when the scene is disposed during the warmup', async () => {
+    const traffic = fakeTraffic()
+    const onError = vi.fn()
+    const onReady = vi.fn()
+    let disposed = false
+    await attachVehicleModels({
+      traffic, load: async () => stubModels(), isDisposed: () => disposed, onError, onReady,
+      warm: async () => { disposed = true },
+    })
+    expect(traffic.discardModels).toHaveBeenCalledTimes(1)
+    expect(traffic.showModels).not.toHaveBeenCalled()
+    expect(onReady).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('reports nothing when the warmup fails because the scene was disposed', async () => {
+    const traffic = fakeTraffic()
+    const onError = vi.fn()
+    let disposed = false
+    await attachVehicleModels({
+      traffic, load: async () => stubModels(), isDisposed: () => disposed, onError,
+      warm: async () => { disposed = true; throw new Error('context gone') },
+    })
+    expect(traffic.discardModels).toHaveBeenCalledTimes(1)
+    expect(traffic.showModels).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
   })
 
   it('adds nothing and disposes the models when the scene was disposed before they arrived', async () => {
     const models = stubModels()
     const spies = VEHICLE_TYPES.map(type => vi.spyOn(models.geometries[type], 'dispose'))
     const mapSpy = vi.spyOn(models.map, 'dispose')
-    const traffic = { useModels: vi.fn() }
+    const traffic = fakeTraffic()
     const onReady = vi.fn()
     await attachVehicleModels({ traffic, load: async () => models, isDisposed: () => true, onReady })
-    expect(traffic.useModels).not.toHaveBeenCalled()
+    expect(traffic.stageModels).not.toHaveBeenCalled()
     expect(onReady).not.toHaveBeenCalled()
     for (const spy of spies) expect(spy).toHaveBeenCalledTimes(1)
     expect(mapSpy).toHaveBeenCalledTimes(1)

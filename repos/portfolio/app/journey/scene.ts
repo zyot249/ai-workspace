@@ -9,7 +9,7 @@ import { damp, dampState, lerpLook } from './interpolate'
 import { createLamps, LAMP_SPACING_FULL, LAMP_SPACING_LOW_POWER, STREET_NAMES } from './lamps'
 import { BUILDING_CLEARANCE, COURTYARD_DEPTH, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH } from './path'
 import type { StopState } from './stops'
-import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
+import { createPostPipeline, POST_EMISSIVES, preservingState, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { seeded } from './random'
 import { reflectInPuddles } from './reflect-layer'
 import { createRoad } from './road'
@@ -447,20 +447,36 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   const traffic = createTraffic(createCars(carCount))
   scene.add(...lamps.objects, traffic.group)
   // Pools and halos already light the road; reflecting them would double that light.
-  // The traffic group carries only car bodies and car lights, and every mesh `useModels` adds inherits its layers.
+  // The traffic group carries only car bodies and car lights, and every mesh `stageModels` adds inherits its layers.
   reflectInPuddles(
     ...lamps.objects.filter(object => object.name === STREET_NAMES.posts || object.name === STREET_NAMES.heads),
     traffic.group,
   )
-  // Cars start as boxes. The GLB models swap in when they arrive. A failed load keeps the boxes.
+  // The startup warmup compiles every program before the first scroll; the model body material arrives
+  // later, so it compiles here, before its meshes show. `compile` walks hidden meshes too: it prepares
+  // materials with `traverse`, not `traverseVisible`. A program depends on the render target only through
+  // null versus non-null (tone mapping and output color space). The composer scene pass and the wet-road
+  // reflection both draw into targets, so one compile under the composer target covers both; the direct
+  // pipeline draws to the canvas. The reflection camera sees the same two lights, so the light setup matches.
+  // Runs after the load resolves, by which time `post` holds its final value.
+  async function warmVehicleShaders(): Promise<void> {
+    await preservingState(renderer, () => {
+      renderer.setRenderTarget(post?.sceneTarget ?? null)
+      return renderer.compileAsync(traffic.group, camera, scene)
+    })
+  }
+
+  // Cars start as boxes. The GLB models are staged hidden when they arrive, their shaders compile, and
+  // then they replace the boxes. A failed load or warmup keeps the boxes.
   if (carCount > 0) {
     void attachVehicleModels({
       traffic,
       load: options.loadVehicleModels ?? (() => loadVehicleModels()),
       isDisposed: () => disposed,
+      warm: warmVehicleShaders,
       onReady: options.onVehiclesReady,
       onError(error) {
-        console.warn('Journey vehicles: the GLB models failed to load. Keeping the box cars.', error)
+        console.warn('Journey vehicles: the GLB models could not be used. Keeping the box cars.', error)
         options.onVehiclesFailed?.(error)
       },
     })

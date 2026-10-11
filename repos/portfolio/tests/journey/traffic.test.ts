@@ -413,6 +413,16 @@ function fakeModels(): VehicleModels {
 const bodyMeshes = (traffic: Traffic) =>
   traffic.objects.filter(mesh => mesh.name.startsWith(`${STREET_NAMES.carBodies}-`))
 
+// The full swap the scene performs once the shader warmup is done.
+function swapIn(traffic: Traffic, models: VehicleModels): void {
+  traffic.stageModels(models)
+  traffic.showModels()
+}
+
+const stagedBodies = (traffic: Traffic) => traffic.group.children
+  .filter((child): child is THREE.InstancedMesh => child instanceof THREE.InstancedMesh
+    && child.name.startsWith(`${STREET_NAMES.carBodies}-`))
+
 describe('createCars vehicle types', () => {
   it('assigns the three types in rotation, so low power still has all three', () => {
     for (const count of [CAR_COUNT_FULL, CAR_COUNT_LOW_POWER]) {
@@ -434,7 +444,7 @@ describe('createTraffic with vehicle models', () => {
 
   it('swaps the box bodies for one body mesh per type: three bodies plus the lights, four draw calls', () => {
     const traffic = createTraffic(createCars(CAR_COUNT_FULL))
-    traffic.useModels(fakeModels())
+    swapIn(traffic, fakeModels())
     expect(traffic.objects).toHaveLength(4)
     expect(bodyMeshes(traffic).map(mesh => mesh.name).sort()).toEqual(VEHICLE_TYPES.map(vehicleBodyName).sort())
     expect(bodyMeshes(traffic).map(mesh => mesh.count)).toEqual([4, 4, 4])
@@ -446,7 +456,7 @@ describe('createTraffic with vehicle models', () => {
 
   it('creates no empty mesh for a type with no cars', () => {
     const traffic = createTraffic([car(10, 3, 'sedan'), car(40, 3, 'sedan'), car(70, 3, 'truck')])
-    traffic.useModels(fakeModels())
+    swapIn(traffic, fakeModels())
     expect(bodyMeshes(traffic).map(mesh => [mesh.name, mesh.count])).toEqual([
       [vehicleBodyName('sedan'), 2],
       [vehicleBodyName('truck'), 1],
@@ -457,35 +467,36 @@ describe('createTraffic with vehicle models', () => {
   it('copies the reflection layers of the group onto the new meshes', () => {
     const traffic = createTraffic(createCars(CAR_COUNT_LOW_POWER))
     traffic.group.layers.enable(1)
-    traffic.useModels(fakeModels())
+    swapIn(traffic, fakeModels())
     for (const mesh of bodyMeshes(traffic)) expect(mesh.layers.isEnabled(1)).toBe(true)
     traffic.dispose()
   })
 
-  it('ignores a second useModels call and keeps the first meshes', () => {
+  it('ignores a second stageModels call and keeps the first meshes', () => {
     const traffic = createTraffic(createCars(CAR_COUNT_FULL))
-    traffic.useModels(fakeModels())
+    swapIn(traffic, fakeModels())
     const first = bodyMeshes(traffic)
-    traffic.useModels(fakeModels())
+    swapIn(traffic, fakeModels())
     expect(bodyMeshes(traffic)).toEqual(first)
+    expect(traffic.group.children).toHaveLength(4)
     traffic.dispose()
   })
 
   it('does nothing after dispose, and with no cars', () => {
     const none = createTraffic([])
-    none.useModels(fakeModels())
+    swapIn(none, fakeModels())
     expect(none.group.children).toHaveLength(0)
     const traffic = createTraffic(createCars(CAR_COUNT_FULL))
     traffic.dispose()
     const before = [...traffic.group.children]
-    expect(() => traffic.useModels(fakeModels())).not.toThrow()
+    expect(() => swapIn(traffic, fakeModels())).not.toThrow()
     expect(traffic.group.children).toEqual(before)
   })
 
   it('puts the vehicles on the road and each on its lane position', () => {
     const fixture = car(50, 3, 'suv')
     const traffic = createTraffic([fixture])
-    traffic.useModels(fakeModels())
+    swapIn(traffic, fakeModels())
     traffic.update(1, 0)
     const bodies = meshNamed(traffic, vehicleBodyName('suv'))
     const pose = carPoseAt(fixture, 0)
@@ -502,7 +513,7 @@ describe('createTraffic with vehicle models', () => {
     traffic.update(0.3, 0)
     const lights = meshNamed(traffic, STREET_NAMES.carLights)
     const colorVersion = lights.instanceColor!.version
-    traffic.useModels(fakeModels())
+    swapIn(traffic, fakeModels())
     expect(meshNamed(traffic, STREET_NAMES.carLights)).toBe(lights)
     traffic.update(0.3, 1)
     for (const mesh of bodyMeshes(traffic)) {
@@ -518,7 +529,7 @@ describe('createTraffic with vehicle models', () => {
       for (const [lane, fixture] of [[1, forwardAt(50)], [-1, backAt(50)]] as const) {
         const typed = { ...fixture, type }
         const traffic = createTraffic([typed])
-        traffic.useModels(fakeModels())
+        swapIn(traffic, fakeModels())
         traffic.update(1, 0)
         const body = positionOf(meshNamed(traffic, vehicleBodyName(type)), 0)
         const lights = meshNamed(traffic, STREET_NAMES.carLights)
@@ -541,7 +552,7 @@ describe('createTraffic with vehicle models', () => {
   it('hides a car at a corner in every mesh, lights included', () => {
     for (const distance of [34, 60]) {
       const traffic = createTraffic([car(distance, 3, 'truck')])
-      traffic.useModels(fakeModels())
+      swapIn(traffic, fakeModels())
       traffic.update(1, 0)
       expect(scaleOf(meshNamed(traffic, vehicleBodyName('truck')), 0)).toBe(0)
       for (let k = 0; k < 4; k++) expect(scaleOf(meshNamed(traffic, STREET_NAMES.carLights), k)).toBe(0)
@@ -552,7 +563,7 @@ describe('createTraffic with vehicle models', () => {
   it('tints each body by its palette color times the paint compensation', () => {
     const cars = createCars(CAR_COUNT_LOW_POWER)
     const traffic = createTraffic(cars)
-    traffic.useModels(fakeModels())
+    swapIn(traffic, fakeModels())
     const out = new THREE.Color()
     const expected = new THREE.Color()
     for (const type of VEHICLE_TYPES) {
@@ -574,7 +585,7 @@ describe('createTraffic with vehicle models', () => {
     const box = meshNamed(traffic, STREET_NAMES.carBodies)
     const boxGeometrySpy = vi.spyOn(box.geometry, 'dispose')
     const boxMaterialSpy = vi.spyOn(box.material as THREE.Material, 'dispose')
-    traffic.useModels(models)
+    swapIn(traffic, models)
     const geometrySpies = VEHICLE_TYPES.map(type => vi.spyOn(models.geometries[type], 'dispose'))
     const mapSpy = vi.spyOn(models.map, 'dispose')
     const material = bodyMeshes(traffic)[0]!.material as THREE.Material
@@ -588,6 +599,116 @@ describe('createTraffic with vehicle models', () => {
     expect(lightGeometrySpy).toHaveBeenCalledTimes(1)
     expect(boxGeometrySpy).toHaveBeenCalledTimes(1)
     expect(boxMaterialSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('staging the vehicle models before they show', () => {
+  it('adds hidden body meshes to the group and keeps drawing the box cars', () => {
+    const traffic = createTraffic(createCars(CAR_COUNT_FULL))
+    const before = traffic.objects
+    traffic.stageModels(fakeModels())
+    expect(stagedBodies(traffic).map(mesh => mesh.name).sort()).toEqual(VEHICLE_TYPES.map(vehicleBodyName).sort())
+    for (const mesh of stagedBodies(traffic)) expect(mesh.visible).toBe(false)
+    expect(traffic.objects).toBe(before)
+    expect(meshNamed(traffic, STREET_NAMES.carBodies).visible).toBe(true)
+    expect(traffic.group.getObjectByName(STREET_NAMES.carBodies)).toBeDefined()
+    traffic.dispose()
+  })
+
+  it('gives the staged meshes the reflection layers of the group', () => {
+    const traffic = createTraffic(createCars(CAR_COUNT_LOW_POWER))
+    traffic.group.layers.enable(1)
+    traffic.stageModels(fakeModels())
+    for (const mesh of stagedBodies(traffic)) expect(mesh.layers.isEnabled(1)).toBe(true)
+    traffic.dispose()
+  })
+
+  it('shows the staged meshes, drops the box bodies and releases their geometry and material', () => {
+    const traffic = createTraffic(createCars(CAR_COUNT_FULL))
+    const box = meshNamed(traffic, STREET_NAMES.carBodies)
+    const boxGeometrySpy = vi.spyOn(box.geometry, 'dispose')
+    const boxMaterialSpy = vi.spyOn(box.material as THREE.Material, 'dispose')
+    traffic.stageModels(fakeModels())
+    const staged = stagedBodies(traffic)
+    traffic.showModels()
+    expect(bodyMeshes(traffic)).toEqual(staged)
+    for (const mesh of staged) expect(mesh.visible).toBe(true)
+    expect(traffic.group.getObjectByName(STREET_NAMES.carBodies)).toBeUndefined()
+    expect(traffic.group.children).toHaveLength(4)
+    expect(boxGeometrySpy).toHaveBeenCalledTimes(1)
+    expect(boxMaterialSpy).toHaveBeenCalledTimes(1)
+    traffic.dispose()
+  })
+
+  it('keeps the box lights offsets until the models show', () => {
+    const fixture = car(50, 3, 'truck')
+    const traffic = createTraffic([fixture])
+    traffic.stageModels(fakeModels())
+    traffic.update(1, 0)
+    const lights = meshNamed(traffic, STREET_NAMES.carLights)
+    const body = positionOf(meshNamed(traffic, STREET_NAMES.carBodies), 0)
+    expect(positionOf(lights, 0).y).toBeCloseTo(body.y + CAR_LIGHT_OFFSETS[0]!.y, 6)
+    traffic.dispose()
+  })
+
+  it('does nothing on showModels when nothing is staged', () => {
+    const traffic = createTraffic(createCars(CAR_COUNT_FULL))
+    const before = traffic.objects
+    traffic.showModels()
+    expect(traffic.objects).toBe(before)
+    expect(traffic.group.children).toHaveLength(2)
+    traffic.dispose()
+  })
+
+  it('discards staged models: removes their meshes, disposes them once and keeps the box cars', () => {
+    const models = fakeModels()
+    const traffic = createTraffic(createCars(CAR_COUNT_FULL))
+    const before = traffic.objects
+    traffic.stageModels(models)
+    const material = stagedBodies(traffic)[0]!.material as THREE.Material
+    const materialSpy = vi.spyOn(material, 'dispose')
+    const geometrySpies = VEHICLE_TYPES.map(type => vi.spyOn(models.geometries[type], 'dispose'))
+    const mapSpy = vi.spyOn(models.map, 'dispose')
+    traffic.discardModels()
+    expect(stagedBodies(traffic)).toEqual([])
+    expect(traffic.objects).toBe(before)
+    expect(traffic.group.children).toHaveLength(2)
+    traffic.showModels()
+    expect(traffic.group.children).toHaveLength(2)
+    traffic.dispose()
+    for (const spy of geometrySpies) expect(spy).toHaveBeenCalledTimes(1)
+    expect(mapSpy).toHaveBeenCalledTimes(1)
+    expect(materialSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not discard models that already show', () => {
+    const models = fakeModels()
+    const traffic = createTraffic(createCars(CAR_COUNT_FULL))
+    swapIn(traffic, models)
+    const mapSpy = vi.spyOn(models.map, 'dispose')
+    traffic.discardModels()
+    expect(bodyMeshes(traffic)).toHaveLength(3)
+    expect(mapSpy).not.toHaveBeenCalled()
+    traffic.dispose()
+  })
+
+  it('disposes staged models, the box cars and the lights when traffic is disposed before the models show', () => {
+    const models = fakeModels()
+    const traffic = createTraffic(createCars(CAR_COUNT_FULL))
+    const box = meshNamed(traffic, STREET_NAMES.carBodies)
+    const boxGeometrySpy = vi.spyOn(box.geometry, 'dispose')
+    traffic.stageModels(models)
+    const material = stagedBodies(traffic)[0]!.material as THREE.Material
+    const materialSpy = vi.spyOn(material, 'dispose')
+    const geometrySpies = VEHICLE_TYPES.map(type => vi.spyOn(models.geometries[type], 'dispose'))
+    const mapSpy = vi.spyOn(models.map, 'dispose')
+    const lightGeometrySpy = vi.spyOn(meshNamed(traffic, STREET_NAMES.carLights).geometry, 'dispose')
+    traffic.dispose()
+    for (const spy of geometrySpies) expect(spy).toHaveBeenCalledTimes(1)
+    expect(mapSpy).toHaveBeenCalledTimes(1)
+    expect(materialSpy).toHaveBeenCalledTimes(1)
+    expect(boxGeometrySpy).toHaveBeenCalledTimes(1)
+    expect(lightGeometrySpy).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -608,7 +729,7 @@ describe('traffic.objects and car-to-slot mapping', () => {
       expect(traffic.objects).toHaveLength(expected)
       expect(traffic.objects.filter(mesh => mesh.name.startsWith(`${STREET_NAMES.carBodies}`))).toHaveLength(expected - 1)
       if (expected === 2) {
-        traffic.useModels(fakeModels())
+        swapIn(traffic, fakeModels())
       }
     }
     traffic.dispose()
@@ -617,7 +738,7 @@ describe('traffic.objects and car-to-slot mapping', () => {
   it('writes each car\'s body and lights to its own slots', () => {
     const cars = createCars(CAR_COUNT_FULL)
     const traffic = createTraffic(cars)
-    traffic.useModels(fakeModels())
+    swapIn(traffic, fakeModels())
     const time = 5
     traffic.update(0.3, time)
     const lights = meshNamed(traffic, STREET_NAMES.carLights)
