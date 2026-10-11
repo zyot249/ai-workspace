@@ -20,6 +20,7 @@ import { targetFor } from './target'
 import { createThemeController } from './theme-blend'
 import type { Tier } from './tier'
 import { carCountFor, createCars, createTraffic } from './traffic'
+import { attachVehicleModels, loadVehicleModels, type VehicleModels } from './vehicle-models'
 import { windowLookFor } from './window-look'
 import { createWetRoad, WET_WARMUP, type WetRoad, type WetRoadOptions } from './wet-road'
 
@@ -42,6 +43,12 @@ export interface JourneySceneOptions {
   onRenderer?: (renderer: THREE.WebGLRenderer) => void
   onSceneReady?: (ready: { scene: THREE.Scene; camera: THREE.PerspectiveCamera }) => void
   onStateApplied?: (state: Readonly<StopState>) => void
+  // Test seam: replaces the GLB download. The default loads the vehicle GLBs from /models/vehicles/.
+  loadVehicleModels?: () => Promise<VehicleModels>
+  // Called after the vehicle models replace the box cars. Never called if the load fails or the scene is disposed first.
+  onVehiclesReady?: () => void
+  // Called once when the vehicle load or swap fails. The box cars stay.
+  onVehiclesFailed?: (error: unknown) => void
 }
 
 const DAMPING = 0.08
@@ -436,13 +443,28 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
 
   // Street life: lamps follow `lowPower` for count, cars follow reduced motion (none) and `lowPower`.
   const lamps = createLamps(lowPower ? LAMP_SPACING_LOW_POWER : LAMP_SPACING_FULL)
-  const traffic = createTraffic(createCars(carCountFor(tier === 'reduced', lowPower)))
-  scene.add(...lamps.objects, ...traffic.objects)
+  const carCount = carCountFor(tier === 'reduced', lowPower)
+  const traffic = createTraffic(createCars(carCount))
+  scene.add(...lamps.objects, traffic.group)
   // Pools and halos already light the road; reflecting them would double that light.
+  // The traffic group carries only car bodies and car lights, and every mesh `useModels` adds inherits its layers.
   reflectInPuddles(
     ...lamps.objects.filter(object => object.name === STREET_NAMES.posts || object.name === STREET_NAMES.heads),
-    ...traffic.objects.filter(object => object.name === STREET_NAMES.carBodies || object.name === STREET_NAMES.carLights),
+    traffic.group,
   )
+  // Cars start as boxes. The GLB models swap in when they arrive. A failed load keeps the boxes.
+  if (carCount > 0) {
+    void attachVehicleModels({
+      traffic,
+      load: options.loadVehicleModels ?? (() => loadVehicleModels()),
+      isDisposed: () => disposed,
+      onReady: options.onVehiclesReady,
+      onError(error) {
+        console.warn('Journey vehicles: the GLB models failed to load. Keeping the box cars.', error)
+        options.onVehiclesFailed?.(error)
+      },
+    })
+  }
 
   const stars = !lowPower ? createStars() : null
   if (stars) { scene.add(stars); reflectInPuddles(stars) }
