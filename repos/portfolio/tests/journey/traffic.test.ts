@@ -477,7 +477,9 @@ describe('createTraffic with vehicle models', () => {
     expect(none.group.children).toHaveLength(0)
     const traffic = createTraffic(createCars(CAR_COUNT_FULL))
     traffic.dispose()
+    const before = [...traffic.group.children]
     expect(() => traffic.useModels(fakeModels())).not.toThrow()
+    expect(traffic.group.children).toEqual(before)
   })
 
   it('puts the vehicles on the road and each on its lane position', () => {
@@ -569,6 +571,9 @@ describe('createTraffic with vehicle models', () => {
   it('disposes the model geometries, texture and shared material, and the lights', () => {
     const models = fakeModels()
     const traffic = createTraffic(createCars(CAR_COUNT_FULL))
+    const box = meshNamed(traffic, STREET_NAMES.carBodies)
+    const boxGeometrySpy = vi.spyOn(box.geometry, 'dispose')
+    const boxMaterialSpy = vi.spyOn(box.material as THREE.Material, 'dispose')
     traffic.useModels(models)
     const geometrySpies = VEHICLE_TYPES.map(type => vi.spyOn(models.geometries[type], 'dispose'))
     const mapSpy = vi.spyOn(models.map, 'dispose')
@@ -581,5 +586,58 @@ describe('createTraffic with vehicle models', () => {
     expect(mapSpy).toHaveBeenCalledTimes(1)
     expect(materialSpy).toHaveBeenCalledTimes(1)
     expect(lightGeometrySpy).toHaveBeenCalledTimes(1)
+    expect(boxGeometrySpy).toHaveBeenCalledTimes(1)
+    expect(boxMaterialSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('traffic.objects and car-to-slot mapping', () => {
+  it('returns a snapshot, so adding the meshes to another parent neither drops them nor empties objects', () => {
+    const traffic = createTraffic(createCars(CAR_COUNT_FULL))
+    for (const expected of [2, 4]) {
+      const meshes = traffic.objects
+      expect(meshes).toHaveLength(expected)
+      const scene = new THREE.Scene()
+      const visited: THREE.Object3D[] = []
+      for (const mesh of meshes) {
+        visited.push(mesh)
+        scene.add(mesh)
+      }
+      expect(visited).toHaveLength(expected)
+      expect(scene.children).toHaveLength(expected)
+      expect(traffic.objects).toHaveLength(expected)
+      expect(traffic.objects.filter(mesh => mesh.name.startsWith(`${STREET_NAMES.carBodies}`))).toHaveLength(expected - 1)
+      if (expected === 2) {
+        traffic.useModels(fakeModels())
+      }
+    }
+    traffic.dispose()
+  })
+
+  it('writes each car\'s body and lights to its own slots', () => {
+    const cars = createCars(CAR_COUNT_FULL)
+    const traffic = createTraffic(cars)
+    traffic.useModels(fakeModels())
+    const time = 5
+    traffic.update(0.3, time)
+    const lights = meshNamed(traffic, STREET_NAMES.carLights)
+    const seen: Record<string, number> = {}
+    let checked = 0
+    cars.forEach((c, i) => {
+      const slot = seen[c.type] ?? 0
+      seen[c.type] = slot + 1
+      const pose = carPoseAt(c, time)
+      if (pose.scale <= 0) return
+      checked++
+      const body = positionOf(meshNamed(traffic, vehicleBodyName(c.type)), slot)
+      expect(body.x, `car ${i} body x`).toBeCloseTo(pose.x, 5)
+      expect(body.z, `car ${i} body z`).toBeCloseTo(pose.z, 5)
+      for (let k = 0; k < 4; k++) {
+        const light = positionOf(lights, i * 4 + k)
+        expect(Math.hypot(light.x - pose.x, light.z - pose.z), `car ${i} light ${k}`).toBeLessThan(0.6)
+      }
+    })
+    expect(checked).toBeGreaterThan(CAR_COUNT_FULL / 2)
+    traffic.dispose()
   })
 })

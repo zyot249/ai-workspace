@@ -260,9 +260,12 @@ export function createTraffic(cars: readonly Car[]): Traffic {
   let modelMaterial: THREE.MeshStandardMaterial | null = null
   let disposed = false
 
+  // Stable array, rebuilt on swap. It stays valid when a caller moves the meshes to another parent.
+  let meshes: readonly THREE.InstancedMesh[] = []
   function fillGroup() {
+    meshes = [...sets.map(set => set.mesh), lights]
     group.clear()
-    group.add(...sets.map(set => set.mesh), lights)
+    group.add(...meshes)
   }
   fillGroup()
 
@@ -309,7 +312,7 @@ export function createTraffic(cars: readonly Car[]): Traffic {
 
   return {
     group,
-    get objects() { return group.children as THREE.InstancedMesh[] },
+    get objects() { return meshes },
     useModels(next) {
       if (disposed || models) return
       const material = new THREE.MeshStandardMaterial({ map: next.map, roughness: 0.55, metalness: 0.3 })
