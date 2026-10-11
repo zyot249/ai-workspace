@@ -1,9 +1,15 @@
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { VEHICLE_SCALE, VEHICLE_SPECS, VEHICLE_TYPES, type VehicleType } from '../../app/journey/vehicle-specs'
+import { mergeVehicleParts } from '../../app/journey/vehicle-geometry'
 import {
   attachVehicleModels, disposeVehicleModels, type GltfSource, loadVehicleModels, type VehicleModels,
 } from '../../app/journey/vehicle-models'
+
+vi.mock('../../app/journey/vehicle-geometry', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../app/journey/vehicle-geometry')>()
+  return { ...actual, mergeVehicleParts: vi.fn(actual.mergeVehicleParts) }
+})
 
 const MODEL_HEIGHT = 1.3
 const MODEL_HALF_WIDTH = 0.75
@@ -46,15 +52,59 @@ describe('loadVehicleModels', () => {
   })
 
   it('applies parent node transforms to the parts', async () => {
+    // The inner scene sits 0.5 low and 0.4 back; the parent offset cancels that, so only the baked
+    // world matrix puts the bounds back on the spec.
     const nested = new THREE.Group()
-    nested.position.set(0, 0, 0)
     const inner = fakeScene('sedan')
+    inner.position.set(0, -0.5, -0.4)
     const offset = new THREE.Group()
+    offset.position.set(0, 0.5, 0.4)
     offset.add(inner)
     nested.add(offset)
     const models = await loadVehicleModels(fakeSource({ sedan: nested }))
-    expect(models.geometries.sedan.boundingBox!.min.y).toBeCloseTo(0, 5)
+    const box = models.geometries.sedan.boundingBox!
+    expect(box.min.y).toBeCloseTo(0, 5)
+    expect(box.max.y).toBeCloseTo(MODEL_HEIGHT * VEHICLE_SCALE, 5)
+    expect(box.min.z).toBeCloseTo(-VEHICLE_SPECS.sedan.frontZ * VEHICLE_SCALE, 5)
     disposeVehicleModels(models)
+  })
+
+  it('keeps the first palette texture and disposes the other copies', async () => {
+    const [first, second, third] = [new THREE.Texture(), new THREE.Texture(), new THREE.Texture()]
+    const spies = [first, second, third].map(texture => vi.spyOn(texture, 'dispose'))
+    const source = fakeSource({
+      sedan: fakeScene('sedan', first), suv: fakeScene('suv', second), truck: fakeScene('truck', third),
+    })
+    const models = await loadVehicleModels(source)
+    expect(models.map).toBe(first)
+    expect(spies[0]).not.toHaveBeenCalled()
+    expect(spies[1]).toHaveBeenCalledTimes(1)
+    expect(spies[2]).toHaveBeenCalledTimes(1)
+    disposeVehicleModels(models)
+  })
+
+  it('disposes everything built so far when a later model fails its spec', async () => {
+    const [kept, spare] = [new THREE.Texture(), new THREE.Texture()]
+    const keptSpy = vi.spyOn(kept, 'dispose')
+    const spareSpy = vi.spyOn(spare, 'dispose')
+    const tooTall = new THREE.Group()
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3, 2.55), new THREE.MeshStandardMaterial({ map: spare }))
+    slab.position.set(0, 1.5, -0.025)
+    tooTall.add(slab)
+    const merge = vi.mocked(mergeVehicleParts)
+    merge.mockClear()
+    const disposed = vi.spyOn(THREE.BufferGeometry.prototype, 'dispose')
+    try {
+      await expect(loadVehicleModels(fakeSource({ sedan: fakeScene('sedan', kept), suv: tooTall })))
+        .rejects.toThrow(/suv.*does not match/)
+      const merged = merge.mock.results.map(result => result.value as THREE.BufferGeometry)
+      expect(merged).toHaveLength(2)
+      for (const geometry of merged) expect(disposed.mock.contexts).toContain(geometry)
+    } finally {
+      disposed.mockRestore()
+    }
+    expect(keptSpy).toHaveBeenCalledTimes(1)
+    expect(spareSpy).toHaveBeenCalledTimes(1)
   })
 
   it('rejects with the measured size when a model does not match its spec', async () => {

@@ -68,8 +68,9 @@ export async function loadVehicleModels(source: GltfSource = loadGltf): Promise<
       if (map === null) map = collected.map
       else if (collected.map !== map) spareMaps.push(collected.map)
       const geometry = mergeVehicleParts(collected.parts, VEHICLE_SCALE)
-      assertMatchesSpec(type, geometry)
+      // Registered before the check so the catch block disposes it if the check throws.
       geometries[type] = geometry
+      assertMatchesSpec(type, geometry)
     }
   } catch (error) {
     for (const geometry of Object.values(geometries)) geometry.dispose()
@@ -78,10 +79,8 @@ export async function loadVehicleModels(source: GltfSource = loadGltf): Promise<
   }
   // The other two palette copies are never drawn.
   for (const texture of spareMaps) texture.dispose()
-  return {
-    geometries: geometries as Record<VehicleType, THREE.BufferGeometry>,
-    map: map as unknown as THREE.Texture,
-  }
+  if (map === null) throw new Error('No vehicle model has a texture')
+  return { geometries: geometries as Record<VehicleType, THREE.BufferGeometry>, map }
 }
 
 export function disposeVehicleModels(models: VehicleModels): void {
