@@ -33,16 +33,16 @@ Success criteria:
 
 ### Model loading: `vehicle-models.ts` (new)
 
-- Loads three GLBs from `public/models/vehicles/` with `GLTFLoader`.
+- Loads three GLBs from `public/models/vehicles/` with `GLTFLoader`. The GLBs reference the shared Kenney palette texture by relative path, so `public/models/vehicles/Textures/colormap.png` ships beside them.
 - For each model: merge all meshes into one geometry (one shared material), then normalize orientation (front at -Z), scale (real length in scene units), and ground contact (wheels at y = 0).
-- Returns plain data per type: geometry groups, materials, `length`, and light offsets.
+- Returns `{ geometries, map }`: one merged geometry per type, plus the shared palette texture. Lengths, bounds, and light offsets are constants in `vehicle-specs.ts`, and the loader rejects a model whose merged bounds drift from them.
 - Pure normalization and merging logic is separate from the loader call, so unit tests run without WebGL or network.
 
 ### Traffic: `traffic.ts` (changed)
 
 - `Car` gains `type: 'sedan' | 'suv' | 'truck'`. Assignment is deterministic from `CAR_SEED`.
-- `createTraffic` builds instanced meshes per type and per material group. Each mesh is named with the prefix `journey-street-car-` so the wet-road pass can find it by prefix.
-- Loop spacing uses each type's length plus a fixed gap, so a truck never overlaps the car ahead. Cars still share one speed.
+- `createTraffic` builds one instanced mesh per type that has cars, all sharing one material. Each mesh is named with the prefix `journey-street-car-` so the wet-road pass can find it by prefix.
+- Loop spacing is unchanged: one jittered spacing for all cars, and all cars share one speed. No two cars overlap because the minimum gap along the loop (about 9.5 units at full count) is larger than the longest vehicle (about 1.06 units). A unit test checks that margin.
 - Pose logic (`carPoseAt`, `loopFrameAt`, corner scale) is unchanged.
 
 ### Color
@@ -62,10 +62,13 @@ Kenney models share one palette texture, and the glass lives inside the body mes
 
 ### Loading and failure
 
-- Traffic starts with no cars. The scene does not wait for the models.
-- When all three GLBs load, traffic builds the instanced meshes and adds them to the scene before the next render.
-- If any load fails, traffic falls back to the current box cars. The scene never breaks, and the error is logged once.
-- `dispose()` releases geometries and materials for every type.
+- Traffic starts with the box cars. The scene does not wait for the models.
+- When all three GLBs load, traffic stages the model meshes in its group with `visible = false` (`stageModels`). The box cars keep drawing.
+- The scene then compiles the model shaders with `renderer.compileAsync` before the meshes become visible. `compile` prepares hidden meshes too. The startup warmup compiled every other program, so this keeps a new program from compiling on a frame mid-scroll. One compile covers both the main pass and the wet-road reflection, because both draw into render targets and use the same lights.
+- After the warmup, traffic shows the model meshes and releases the box bodies (`showModels`).
+- If any load or the warmup fails, traffic keeps the box cars and disposes the staged models (`discardModels`). The scene never breaks, and the error is logged once.
+- If the scene is disposed during the load or the warmup, nothing is shown, the models are disposed, and no error is reported.
+- `dispose()` releases geometries and materials for every type, staged or shown.
 
 ## Testing
 
@@ -80,7 +83,9 @@ Unit (`tests/journey/`):
 - Fallback: a rejected load yields box cars and no thrown error.
 - Normalization: front faces -Z, wheels sit at y = 0, length matches the target.
 
-GPU (existing suites): street and wet-road tests must pass, with traffic present.
+- Swap order: models are staged, warmed, then shown. A failed warmup or a dispose during it keeps the box cars.
+
+GPU: street and wet-road tests must pass, with traffic present. `vehicles.spec.ts` checks that drawing the shown models, including the reflection pass, builds no new shader program.
 
 ## Verification
 
