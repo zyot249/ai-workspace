@@ -74,6 +74,16 @@ describe('createCars', () => {
       }
     }
   })
+
+  it('spaces cars along the loop by more than the longest vehicle, so no two bodies overlap', () => {
+    const longest = Math.max(...VEHICLE_TYPES.map(type => vehicleBounds(type).maxZ - vehicleBounds(type).minZ))
+    for (const count of [CAR_COUNT_FULL, CAR_COUNT_LOW_POWER]) {
+      // All cars share one speed, so the gaps at t = 0 hold at every time.
+      const starts = createCars(count).map(c => c.startDistance).sort((a, b) => a - b)
+      const gaps = starts.map((start, i) => (i + 1 < starts.length ? starts[i + 1]! : starts[0]! + LOOP_LENGTH) - start)
+      expect(Math.min(...gaps), `count ${count}`).toBeGreaterThan(longest)
+    }
+  })
 })
 
 describe('CAR_ROUTE_END', () => {
@@ -509,16 +519,24 @@ describe('createTraffic with vehicle models', () => {
   })
 
   it('writes every matrix on the first update after a swap that happens mid-run, and keeps the light mesh', () => {
-    const traffic = createTraffic([car(50, 3, 'sedan'), car(80, 3, 'truck')])
+    const fixtures = [car(50, 3, 'sedan'), car(80, 3, 'truck')]
+    const traffic = createTraffic(fixtures)
     traffic.update(0.3, 0)
     const lights = meshNamed(traffic, STREET_NAMES.carLights)
     const colorVersion = lights.instanceColor!.version
     swapIn(traffic, fakeModels())
     expect(meshNamed(traffic, STREET_NAMES.carLights)).toBe(lights)
     traffic.update(0.3, 1)
-    for (const mesh of bodyMeshes(traffic)) {
-      expect(scaleOf(mesh, 0)).toBeGreaterThan(0)
-      expect(Number.isNaN(positionOf(mesh, 0).x)).toBe(false)
+    for (const fixture of fixtures) {
+      const pose = carPoseAt(fixture, 1)
+      // A car hidden at a corner has scale 0 and would make the position check weaker.
+      expect(pose.scale).toBeCloseTo(1, 6)
+      const mesh = meshNamed(traffic, vehicleBodyName(fixture.type))
+      const position = positionOf(mesh, 0)
+      expect(position.x, `${fixture.type} x`).toBeCloseTo(pose.x, 5)
+      expect(position.z, `${fixture.type} z`).toBeCloseTo(pose.z, 5)
+      expect(position.y, `${fixture.type} y`).toBeCloseTo(ROAD_Y, 6)
+      expect(scaleOf(mesh, 0)).toBeCloseTo(1, 6)
     }
     expect(lights.instanceColor!.version).toBe(colorVersion)
     traffic.dispose()
@@ -713,7 +731,7 @@ describe('staging the vehicle models before they show', () => {
 })
 
 describe('traffic.objects and car-to-slot mapping', () => {
-  it('returns a snapshot, so adding the meshes to another parent neither drops them nor empties objects', () => {
+  it('keeps objects stable when a caller moves the meshes to another parent, before and after the swap', () => {
     const traffic = createTraffic(createCars(CAR_COUNT_FULL))
     for (const expected of [2, 4]) {
       const meshes = traffic.objects

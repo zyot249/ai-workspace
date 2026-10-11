@@ -61,6 +61,7 @@ const cityGpu = {
   setComponentDark,
   componentResourceCounts,
   unmountComponent,
+  // Settles once the vehicle models show (after their shader warmup) or the swap gives up.
   waitForVehicles(): Promise<void> {
     return vehiclesSettled
   },
@@ -107,6 +108,10 @@ const cityGpu = {
           observers?.onStateApplied?.(state)
         },
       })
+    } catch (error) {
+      // A scene that throws never reports on the vehicles, so settle here or waitForVehicles would hang.
+      settleVehicles()
+      throw error
     } finally {
       window.__cityGpuRendererObserver = previousObserver
     }
