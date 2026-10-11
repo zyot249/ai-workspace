@@ -7,6 +7,11 @@ import {
 const MODEL_DIR = new URL('../../public/models/vehicles/', import.meta.url)
 const MAX_MODEL_BYTES = 250_000
 const LIGHT_DEPTH = 0.03
+const COLORMAP_URI = 'Textures/colormap.png'
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+// GLB layout: 12-byte header, then the JSON chunk length (4 bytes), chunk type (4 bytes), JSON data.
+const GLB_JSON_LENGTH_OFFSET = 12
+const GLB_JSON_START = 20
 
 describe('vehicle files', () => {
   it('ships one non-empty GLB per type under 250 KB, and the CC0 licence note', () => {
@@ -16,6 +21,18 @@ describe('vehicle files', () => {
       expect(size, type).toBeLessThan(MAX_MODEL_BYTES)
     }
     expect(fs.readFileSync(new URL('LICENSE.txt', MODEL_DIR), 'utf8')).toContain('Creative Commons Zero')
+  })
+
+  it('ships the colormap PNG that every GLB references by uri', () => {
+    const png = fs.readFileSync(new URL(COLORMAP_URI, MODEL_DIR))
+    expect([...png.subarray(0, PNG_SIGNATURE.length)]).toEqual(PNG_SIGNATURE)
+    expect(png.length).toBeLessThan(MAX_MODEL_BYTES)
+    for (const type of VEHICLE_TYPES) {
+      const glb = fs.readFileSync(new URL(VEHICLE_SPECS[type].file, MODEL_DIR))
+      const jsonLength = glb.readUInt32LE(GLB_JSON_LENGTH_OFFSET)
+      const json = JSON.parse(glb.subarray(GLB_JSON_START, GLB_JSON_START + jsonLength).toString('utf8'))
+      expect(json.images[0].uri, type).toBe(COLORMAP_URI)
+    }
   })
 })
 
