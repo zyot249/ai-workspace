@@ -3,11 +3,11 @@ import golden from './fixtures/building-positions.json'
 import {
   assignSpires, BASE_Y, BEACON_PERIOD, BEACON_RADIUS, beaconIsOn, BLOCK_HEIGHT, boxPartsFor, type Archetype,
   type Building, createBuildings, HIDDEN_BUILDING, LAYERS, PART_STRIDE, partRangesFor, PLACEMENT_ATTEMPTS,
-  placeBuilding, ROAD_CLEARANCE, rollArchetype, SPIRE_COUNTS, SPIRE_WIDTH, writeBeaconPart, writeBoxParts,
+  placeBuilding, rollArchetype, SIDEWALK_ATTEMPTS, SPIRE_COUNTS, SPIRE_WIDTH, writeBeaconPart, writeBoxParts,
   writeSpirePart,
 } from '../../app/journey/buildings'
 import { clearsCornerBlocks, clearsFootprints } from '../../app/journey/footprints'
-import { clearsPath, ROAD_HALF_WIDTH } from '../../app/journey/path'
+import { BUILDING_ROAD_MARGIN, clearsPath, clearsSidewalks, ROAD_HALF_WIDTH } from '../../app/journey/path'
 import { seeded } from '../../app/journey/random'
 
 const WEIGHTS = [[33, 33, 34], [55, 30, 15], [70, 25, 5]] as const
@@ -199,6 +199,7 @@ describe('placeBuilding', () => {
           if (!clearsPath(x, z, ROAD_HALF_WIDTH)) violations.push(`road ${layer}:${i}`)
           if (!clearsFootprints(x, z)) violations.push(`footprint ${layer}:${i}`)
           if (!clearsCornerBlocks(x, z)) violations.push(`corner ${layer}:${i}`)
+          if (!clearsSidewalks(x, z)) violations.push(`sidewalk ${layer}:${i}`)
         }
       }
       expect(violations).toEqual([])
@@ -233,7 +234,8 @@ describe('placeBuilding', () => {
         const seedBase = layer * 1000 + i
         const depth = old.width * (0.7 + 0.6 * seeded(seedBase + 300))
         const halfExtent = Math.max(old.width, depth) / 2
-        const passes = clearsPath(old.x, old.z, ROAD_CLEARANCE + halfExtent)
+        const passes = clearsPath(old.x, old.z, BUILDING_ROAD_MARGIN + halfExtent)
+          && clearsSidewalks(old.x, old.z, halfExtent)
           && clearsFootprints(old.x, old.z, halfExtent) && clearsCornerBlocks(old.x, old.z, halfExtent)
         if (!passes) return
         const now = placeBuilding(seedBase, config.sideSpread)
@@ -243,5 +245,19 @@ describe('placeBuilding', () => {
       })
     }
     expect(checked).toBeGreaterThan(total * 0.5)
+  })
+
+  it('adds sidewalk-window attempts after the original eight', () => {
+    expect(SIDEWALK_ATTEMPTS).toBe(8)
+  })
+
+  it('keeps at least 90% of the near layer after the stricter acceptance', () => {
+    let placed = 0
+    for (let i = 0; i < 500; i++) if (placeBuilding(i, LAYERS[0].sideSpread)) placed++
+    expect(placed / 500).toBeGreaterThanOrEqual(0.9)
+  })
+
+  it('never places a building on the diagonal of an outside corner', () => {
+    expect(clearsSidewalks(3.2, -29.2, 0.3)).toBe(false)
   })
 })

@@ -78,3 +78,10 @@ it('takes the shortest angle and normalizes it', () => {
       expect(angle).toBeGreaterThanOrEqual(-180); expect(angle).toBeLessThan(180)
     }
 })
+
+it('interpolates wetness at p = 0, 0.5 and 1', () => {
+  const a = LOOKS.dark.skills, b = LOOKS.dark.about
+  expect(lerpLook(a, b, 0).wetness).toBe(.4)
+  expect(lerpLook(a, b, .5).wetness).toBeCloseTo(.55, 12)
+  expect(lerpLook(a, b, 1).wetness).toBe(.7)
+})

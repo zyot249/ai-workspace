@@ -5,6 +5,11 @@ const LANDMARK_DRAW_CALLS = 4
 // Street life (spec 07): posts, heads, pools and halos, plus car bodies and car lights unless reduced motion removes the cars.
 const STREET_DRAW_CALLS = 6
 const STREET_DRAW_CALLS_REDUCED = 4
+// The old road's eight separate meshes were frustum culled differently by chapter.
+// The merged road, sidewalks, and dash batch change chapters 0/2/3 by these amounts.
+const ROAD_DRAW_CALL_DELTA = [-5, -4, 1] as const
+// The wet overlay adds one main-scene draw in chapters 2 and 3 on the composer pipeline.
+const WET_OVERLAY_DRAW_CALLS = 1
 
 
 test('harness runs the real scene and checks a real render', async ({ page }) => {
@@ -68,7 +73,9 @@ for (const [tier, lowPower] of [
     // City 04 adds one contact-shadow draw on every tier.
     // City 07 adds four lamp draws on every tier and two car draws unless motion is reduced.
     const streetCalls = tier === 'reduced' ? STREET_DRAW_CALLS_REDUCED : STREET_DRAW_CALLS
-    const expectedCalls = (lowPower ? [60, 28, 17] : [61, 29, 18]).map(calls => calls + (lowPower ? 0 : LANDMARK_DRAW_CALLS) + 1 + streetCalls)
+    const expectedCalls = (lowPower ? [60, 28, 17] : [61, 29, 18]).map((calls, index) =>
+      calls + (lowPower ? 0 : LANDMARK_DRAW_CALLS) + 1 + streetCalls + ROAD_DRAW_CALL_DELTA[index]!
+        + (!lowPower && index > 0 ? WET_OVERLAY_DRAW_CALLS : 0))
     expect([result.frames[0]!.calls, result.frames[2]!.calls, result.frames[3]!.calls]).toEqual(expectedCalls)
     for (const layer of result.layers) {
       expect(layer.seedCount).toBe(layer.count)

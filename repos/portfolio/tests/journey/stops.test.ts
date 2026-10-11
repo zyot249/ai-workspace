@@ -47,3 +47,8 @@ it('keeps night clouds faint (spec 09 test 16, retuned 2026-10-09)', () => {
   expect(LOOKS.dark.about.cloudLitColor).toEqual(hexToRgb('#2c3353'))
   expect(LOOKS.dark.about.cloudShadeColor).toEqual(hexToRgb('#181c35'))
 })
+
+it('authors wetness per theme: dry day, rain-wet dusk to night', () => {
+  expect(CHAPTER_IDS.map(id => LOOKS.light[id].wetness)).toEqual([0, 0, 0, 0])
+  expect(CHAPTER_IDS.map(id => LOOKS.dark[id].wetness)).toEqual([0, .15, .4, .7])
+})

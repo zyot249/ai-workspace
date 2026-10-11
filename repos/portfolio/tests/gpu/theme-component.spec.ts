@@ -11,7 +11,8 @@ for (const dark of [false, true]) {
       document.documentElement.classList.toggle('dark', dark)
       return window.cityGpu.mountComponent({ failure: 'none', chapter: 0, initialDark: !dark })
     }, dark)
-    await expect.poll(() => page.evaluate(() => window.cityGpu.componentStatus().visible)).toBe(true)
+    // Cold shader compilation can block the first browser call beyond Playwright's 5 s poll default.
+    await expect.poll(() => page.evaluate(() => window.cityGpu.componentStatus().visible), { timeout: 30000 }).toBe(true)
     const first = await page.evaluate(() => window.cityGpu.componentThemeStatus())
     expect(first.calls).toEqual([{ isDark: dark, animate: false }])
     // The background is the dome's fallback: the horizon (fog) colour.

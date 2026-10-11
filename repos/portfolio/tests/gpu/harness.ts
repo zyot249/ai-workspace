@@ -9,9 +9,11 @@ import { breakRestoredComponent, componentResourceCounts, componentStatus, compo
 import './post-probe'
 import { diagnostics as rendererDiagnostics, readFrame as rendererFrame } from './gpu-utils'
 import { measureRenderCost } from './render-cost'
+import { roadProbe } from './road-probe'
 import { skyProbe } from './sky-probe'
 import { probeStreetFog, probeStreetHalo, probeStreetHeads, probeStreetPools, probeTraffic, streetDrawCalls, streetState } from './street-probe'
 import { probeWindows } from './windows-probe'
+import { wetRoadProbe } from './wet-road-probe'
 
 let journey: JourneyScene | null = null
 let renderer: THREE.WebGLRenderer | null = null
@@ -35,6 +37,8 @@ function currentDiagnostics() {
 
 const cityGpu = {
   sky: skyProbe,
+  road: roadProbe,
+  wetRoad: wetRoadProbe,
   probeFacade,
   probeGradient,
   probeWindows,
@@ -56,30 +60,44 @@ const cityGpu = {
   setComponentDark,
   componentResourceCounts,
   unmountComponent,
-  mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number; initialDark?: boolean },
+  mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number; initialDark?: boolean;
+    directPipeline?: boolean; failWetRoadTarget?: boolean },
     observers?: Pick<JourneySceneOptions, 'onRenderer' | 'onSceneReady' | 'onStateApplied'>) {
     cityGpu.dispose()
     canvas = document.createElement('canvas')
     document.body.append(canvas)
     last = { chapter: 0, progress: 0, time: 0 }
-    journey = createJourneyScene(canvas, options.tier, [{ title: 'GPU test exhibit', date: '2026-10' }], {
-      lowPower: options.lowPower,
-      onRenderer(value) {
-        renderer = value; value.setPixelRatio(1)
-        sceneCalls = null
-        const originalRender = value.render.bind(value)
-        value.render = (object, camera) => {
-          originalRender(object, camera)
-          if ((object as THREE.Scene).isScene) sceneCalls = value.info.render.calls
-        }
-        observers?.onRenderer?.(value)
-      },
-      onSceneReady(value) { context = value; observers?.onSceneReady?.(value) },
-      onStateApplied(state) {
-        appliedState = state
-        observers?.onStateApplied?.(state)
-      },
-    })
+    const previousObserver = window.__cityGpuRendererObserver
+    if (options.directPipeline) {
+      // Pretend HDR color buffers are missing before the scene probes the composer pipeline.
+      window.__cityGpuRendererObserver = value => {
+        const has = value.extensions.has.bind(value.extensions)
+        value.extensions.has = name => (name === 'EXT_color_buffer_float' || name === 'EXT_color_buffer_half_float' ? false : has(name))
+      }
+    }
+    try {
+      journey = createJourneyScene(canvas, options.tier, [{ title: 'GPU test exhibit', date: '2026-10' }], {
+        lowPower: options.lowPower,
+        wetRoad: options.failWetRoadTarget ? { checkComplete: () => false } : undefined,
+        onRenderer(value) {
+          renderer = value; value.setPixelRatio(1)
+          sceneCalls = null
+          const originalRender = value.render.bind(value)
+          value.render = (object, camera) => {
+            originalRender(object, camera)
+            if ((object as THREE.Scene).isScene) sceneCalls = value.info.render.calls
+          }
+          observers?.onRenderer?.(value)
+        },
+        onSceneReady(value) { context = value; observers?.onSceneReady?.(value) },
+        onStateApplied(state) {
+          appliedState = state
+          observers?.onStateApplied?.(state)
+        },
+      })
+    } finally {
+      window.__cityGpuRendererObserver = previousObserver
+    }
     journey.resize(options.width ?? 640, options.height ?? 360)
     journey.setTheme(options.initialDark ?? true, { animate: false })
   },

@@ -1,13 +1,16 @@
 import * as THREE from 'three'
 import { createFacadeMaterial, type FacadeUniforms } from './facade-material'
 import { clearsCornerBlocks, clearsFootprints } from './footprints'
-import { clearsPath, PATH_TOTAL_LENGTH, pathPointAt, ROAD_HALF_WIDTH } from './path'
+import { BUILDING_ROAD_MARGIN, clearsPath, clearsSidewalks, PATH_TOTAL_LENGTH, pathPointAt, ROAD_HALF_WIDTH } from './path'
 import { POST_EMISSIVES } from './post'
 import { seeded } from './random'
 
 export const ROAD_CLEARANCE = ROAD_HALF_WIDTH + 0.3
 export const BASE_Y = -1
 export const PLACEMENT_ATTEMPTS = 8
+// Extra attempts whose candidate window starts at the sidewalk edge (spec 08). The first PLACEMENT_ATTEMPTS keep
+// their original candidates, so every old position that also passes the stricter check keeps its place.
+export const SIDEWALK_ATTEMPTS = 8
 
 // Generic background skyline, spread across the whole path as fill between the
 // set-pieces rather than clustered at one depth. Each band has its own base
@@ -90,16 +93,20 @@ export function rollArchetype(seed: number, layerIndex: number): RolledArchetype
 }
 
 // Picks a point off to one side of the path that is clear of every road
-// segment, set-piece footprint, and corner block for the building's whole
-// axis-aligned rectangle. Candidates are generated exactly as before the
-// footprint change; only the acceptance test is stricter. Tries a handful of
-// seeded candidates and gives up (returns null, hidden off-scene) if none clear.
+// segment, sidewalk, set-piece footprint, and corner block for the building's
+// whole axis-aligned rectangle. The first PLACEMENT_ATTEMPTS candidates are
+// generated exactly as before the footprint and sidewalk changes; only the
+// acceptance test is stricter. The later SIDEWALK_ATTEMPTS candidates start
+// beyond the sidewalk, so the near layer is not starved. Gives up (returns
+// null, hidden off-scene) if none clear.
 export function placeBuilding(seedBase: number, sideSpread: number): Placement | null {
   const width = 0.5 + seeded(seedBase + 100) * 0.6
   const depth = width * (0.7 + 0.6 * seeded(seedBase + 300))
-  const minClear = ROAD_CLEARANCE + width / 2
   const halfExtent = Math.max(width, depth) / 2
-  for (let attempt = 0; attempt < PLACEMENT_ATTEMPTS; attempt++) {
+  const roadWindow = ROAD_CLEARANCE + width / 2
+  const sidewalkWindow = BUILDING_ROAD_MARGIN + width / 2
+  for (let attempt = 0; attempt < PLACEMENT_ATTEMPTS + SIDEWALK_ATTEMPTS; attempt++) {
+    const minClear = attempt < PLACEMENT_ATTEMPTS ? roadWindow : sidewalkWindow
     const s = seedBase + attempt * 977
     const distance = seeded(s + 400) * PATH_TOTAL_LENGTH
     const point = pathPointAt(distance)
@@ -108,8 +115,8 @@ export function placeBuilding(seedBase: number, sideSpread: number): Placement |
     const offset = side * (minClear + seeded(s + 1000) * (half - minClear))
     const x = point.x + point.rightX * offset
     const z = point.z + point.rightZ * offset
-    if (clearsPath(x, z, ROAD_CLEARANCE + halfExtent) && clearsFootprints(x, z, halfExtent)
-      && clearsCornerBlocks(x, z, halfExtent)) {
+    if (clearsPath(x, z, BUILDING_ROAD_MARGIN + halfExtent) && clearsSidewalks(x, z, halfExtent)
+      && clearsFootprints(x, z, halfExtent) && clearsCornerBlocks(x, z, halfExtent)) {
       return { x, z, width, depth }
     }
   }

@@ -27,3 +27,9 @@ it('clamps chapter ends and terminal scrolling', () => {
   expect(targetFor(1, -1, 0, false)).toEqual(stopFor(1, 0))
   expect(targetFor(1, 2, 1, false)).toEqual(stopFor(2, 1))
 })
+
+it('returns the light and dark wetness at themeMix 0 and 1', () => {
+  expect(targetFor(3, 0, 0, false).wetness).toBe(0)
+  expect(targetFor(3, 0, 1, false).wetness).toBe(.7)
+  expect(targetFor(1, 0, 1, false).wetness).toBe(.15)
+})

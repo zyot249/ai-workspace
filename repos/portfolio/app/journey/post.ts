@@ -83,7 +83,7 @@ function drainProbeErrors(gl: WebGL2RenderingContext): void {
 
 // Reusable render-state snapshot; restores in `finally` so an addon that
 // throws mid-render cannot leave the renderer on one of its targets.
-function preservingState<T>(renderer: THREE.WebGLRenderer, action: () => T): T {
+export function preservingState<T>(renderer: THREE.WebGLRenderer, action: () => T): T {
   const saved = {
     target: renderer.getRenderTarget(), face: renderer.getActiveCubeFace(), mip: renderer.getActiveMipmapLevel(),
     color: renderer.getClearColor(new THREE.Color()), alpha: renderer.getClearAlpha(), auto: renderer.autoClear,

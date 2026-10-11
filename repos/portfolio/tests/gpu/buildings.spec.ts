@@ -74,20 +74,24 @@ test('the restore check can see a beacon: hiding beacons changes the frame by mo
   await page.waitForFunction(() => Boolean(window.cityGpu))
   const result = await page.evaluate(() => {
     window.cityGpu.mountJourney({ tier: 'reduced', lowPower: false })
-    window.cityGpu.renderJourney({ chapter: 3, time: 0 })
-    const withBeacons = window.cityGpu.readFrame()
     const beacons = window.cityGpu.getJourneyContext().scene.children.filter(child => child.name.endsWith('-beacon'))
-    beacons.forEach(beacon => { beacon.visible = false })
-    window.cityGpu.renderJourney({ chapter: 3, time: 0 })
-    const without = window.cityGpu.readFrame()
+    const chapters = [0, 1, 2, 3].map(chapter => {
+      window.cityGpu.renderJourney({ chapter, time: 0 })
+      const withBeacons = window.cityGpu.readFrame()
+      beacons.forEach(beacon => { beacon.visible = false })
+      window.cityGpu.renderJourney({ chapter, time: 0 })
+      const without = window.cityGpu.readFrame()
+      beacons.forEach(beacon => { beacon.visible = true })
+      let max = 0
+      let sum = 0
+      withBeacons.forEach((byte, index) => { const d = Math.abs(byte - without[index]!); max = Math.max(max, d); sum += d })
+      return { chapter, max, mean: sum / withBeacons.length }
+    })
     window.cityGpu.dispose()
-    let max = 0
-    let sum = 0
-    withBeacons.forEach((byte, index) => { const d = Math.abs(byte - without[index]!); max = Math.max(max, d); sum += d })
-    return { beacons: beacons.length, max, mean: sum / withBeacons.length }
+    return { beacons: beacons.length, chapters }
   })
   expect(result.beacons).toBe(2)
-  expect(result.max).toBeGreaterThan(1)
+  expect(result.chapters.some(chapter => chapter.max > 1), JSON.stringify(result.chapters)).toBe(true)
   // The old mean < 1 assertion would have passed with no beacon at all.
-  expect(result.mean).toBeLessThan(1)
+  expect(result.chapters.every(chapter => chapter.mean < 1)).toBe(true)
 })
