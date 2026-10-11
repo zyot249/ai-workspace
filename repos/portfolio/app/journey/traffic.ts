@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { DARK_GLASS_HEX, lampIntensity, STREET_LIGHT_LUMINANCE, STREET_NAMES } from './lamps'
-import { headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, pathPointAt } from './path'
+import { COURTYARD_DEPTH, headingFor, PATH_SEGMENTS, pathPointAt, PLACES } from './path'
 import { seeded } from './random'
 import { smoothstep } from './sky-mirror'
 import { gainFor } from './window-look'
@@ -13,8 +13,23 @@ export const SPEED_MAX = 5.5
 // Scale is 0 within CORNER_HIDE of an interior waypoint and 1 beyond CORNER_SHOW.
 export const CORNER_HIDE = 2.5
 export const CORNER_SHOW = 3.5
-// Scale is 0 at either path end and 1 from EDGE_SHOW in, so the wrap from 100 to 0 never pops.
-export const EDGE_SHOW = 4
+// Free road kept between a turnaround arc and the courtyard entrance.
+export const CAR_TURN_MARGIN = 1
+// The road runs on past the courtyard, but its house stands on the road. Cars drive from the start
+// of the path to this distance, turn around, and come back. The turnaround arc bulges LANE_OFFSET
+// past it, so it ends CAR_TURN_MARGIN short of the courtyard entrance.
+const COURTYARD_SEGMENT = PATH_SEGMENTS[2]
+export const CAR_ROUTE_END = COURTYARD_SEGMENT
+  ? COURTYARD_SEGMENT.cumStart
+    + Math.hypot(PLACES.courtyard.x - COURTYARD_SEGMENT.fromX, PLACES.courtyard.z - COURTYARD_SEGMENT.fromZ)
+    - COURTYARD_DEPTH / 2
+    - LANE_OFFSET
+    - CAR_TURN_MARGIN
+  : 0
+// Half circle of radius LANE_OFFSET that carries a car from one lane to the other.
+export const TURN_ARC_LENGTH = Math.PI * LANE_OFFSET
+// One lap: forward leg, end arc, back leg, start arc.
+export const LOOP_LENGTH = 2 * CAR_ROUTE_END + 2 * TURN_ARC_LENGTH
 export const CAR_SIZE = { width: 0.45, height: 0.28, length: 0.9 } as const
 export const CAR_RIDE_HEIGHT = 0.08
 // Road surface is at y = -1.
@@ -25,15 +40,14 @@ export const FRONT_LIGHT_THRESHOLD = 0.2
 export const REAR_MIN_INTENSITY = 0.2
 
 const CAR_SEED = 9300
-const LANES = [1, -1] as const
-// Jitter is a fraction of the spacing between cars, so same-lane gaps stay at least (1 - JITTER) * spacing.
-const START_JITTER = 0.7
+// Jitter is a fraction of the spacing between cars, so gaps along the loop stay at least (1 - JITTER) * spacing.
+const START_JITTER = 0.6
 const BODY_COLORS = [0x3a3a40, 0x52525a, 0x6a6a72, 0x1f2a44, 0x4a1c1c, 0x2c2c30] as const
 const INTERIOR_DISTANCES = PATH_SEGMENTS.slice(1).map(segment => segment.cumStart)
 
 export interface Car {
-  lane: 1 | -1
   speed: number
+  // Position along the loop, 0 to LOOP_LENGTH.
   startDistance: number
   bodyColor: number
 }
@@ -42,6 +56,7 @@ export interface CarPose {
   x: number
   z: number
   yaw: number
+  // Distance along the path center line to the nearest point on it.
   distance: number
   scale: number
 }
@@ -51,22 +66,18 @@ export function carCountFor(reducedMotion: boolean, lowPower: boolean): number {
   return lowPower ? CAR_COUNT_LOW_POWER : CAR_COUNT_FULL
 }
 
-// All cars in a lane share one speed, so they keep their spacing and never drive through each other.
+// All cars share one speed, so they keep their spacing along the loop and never drive through each other.
 export function createCars(count: number): Car[] {
-  const perLane = Math.floor(count / 2)
+  const speed = SPEED_MIN + (SPEED_MAX - SPEED_MIN) * seeded(CAR_SEED)
   const cars: Car[] = []
-  for (const [laneIndex, lane] of LANES.entries()) {
-    const speed = SPEED_MIN + (SPEED_MAX - SPEED_MIN) * seeded(CAR_SEED + laneIndex)
-    for (let i = 0; i < perLane; i++) {
-      const seed = CAR_SEED + 10 + laneIndex * 50 + i
-      const colorIndex = Math.floor(seeded(seed + 100) * BODY_COLORS.length)
-      cars.push({
-        lane,
-        speed,
-        startDistance: ((i + START_JITTER * seeded(seed)) / perLane) * PATH_TOTAL_LENGTH,
-        bodyColor: BODY_COLORS[colorIndex] ?? BODY_COLORS[0],
-      })
-    }
+  for (let i = 0; i < count; i++) {
+    const seed = CAR_SEED + 10 + i
+    const colorIndex = Math.floor(seeded(seed + 100) * BODY_COLORS.length)
+    cars.push({
+      speed,
+      startDistance: ((i + START_JITTER * seeded(seed)) / count) * LOOP_LENGTH,
+      bodyColor: BODY_COLORS[colorIndex] ?? BODY_COLORS[0],
+    })
   }
   return cars
 }
@@ -78,25 +89,68 @@ export function cornerScale(distance: number): number {
   return smoothstep(CORNER_HIDE, CORNER_SHOW, nearest)
 }
 
-export function edgeScale(distance: number): number {
-  return smoothstep(0, EDGE_SHOW, Math.min(distance, PATH_TOTAL_LENGTH - distance))
+// A point on the loop in the path frame: `forward` along the path direction and `right` along its right
+// vector, both from the path point at `distance`. `heading` is the unit travel direction in the same frame.
+interface LoopFrame {
+  distance: number
+  forward: number
+  right: number
+  headingForward: number
+  headingRight: number
 }
 
-export function visibilityScale(distance: number): number {
-  return cornerScale(distance) * edgeScale(distance)
+const frame: LoopFrame = { distance: 0, forward: 0, right: 0, headingForward: 0, headingRight: 0 }
+
+function loopFrameAt(u: number, out: LoopFrame): LoopFrame {
+  if (u < CAR_ROUTE_END) {
+    out.distance = u
+    out.forward = 0
+    out.right = LANE_OFFSET
+    out.headingForward = 1
+    out.headingRight = 0
+    return out
+  }
+  if (u < CAR_ROUTE_END + TURN_ARC_LENGTH) {
+    const theta = (u - CAR_ROUTE_END) / LANE_OFFSET
+    out.distance = CAR_ROUTE_END
+    out.forward = LANE_OFFSET * Math.sin(theta)
+    out.right = LANE_OFFSET * Math.cos(theta)
+    out.headingForward = Math.cos(theta)
+    out.headingRight = -Math.sin(theta)
+    return out
+  }
+  const backStart = CAR_ROUTE_END + TURN_ARC_LENGTH
+  if (u < backStart + CAR_ROUTE_END) {
+    out.distance = CAR_ROUTE_END - (u - backStart)
+    out.forward = 0
+    out.right = -LANE_OFFSET
+    out.headingForward = -1
+    out.headingRight = 0
+    return out
+  }
+  const theta = (u - backStart - CAR_ROUTE_END) / LANE_OFFSET
+  out.distance = 0
+  out.forward = -LANE_OFFSET * Math.sin(theta)
+  out.right = -LANE_OFFSET * Math.cos(theta)
+  out.headingForward = -Math.cos(theta)
+  out.headingRight = Math.sin(theta)
+  return out
 }
 
 // The modulo runs in double precision before anything is written to a float matrix, so a large
 // `t` (performance.now() / 1000 after hours) does not lose precision.
 export function carPoseAt(car: Car, t: number, out: CarPose = { x: 0, z: 0, yaw: 0, distance: 0, scale: 0 }): CarPose {
-  const raw = (car.startDistance + car.lane * car.speed * t) % PATH_TOTAL_LENGTH
-  const distance = raw < 0 ? raw + PATH_TOTAL_LENGTH : raw
-  const point = pathPointAt(distance)
-  out.x = point.x + point.rightX * car.lane * LANE_OFFSET
-  out.z = point.z + point.rightZ * car.lane * LANE_OFFSET
-  out.yaw = headingFor(car.lane * point.dirX, car.lane * point.dirZ)
-  out.distance = distance
-  out.scale = visibilityScale(distance)
+  const raw = (car.startDistance + car.speed * t) % LOOP_LENGTH
+  const loop = loopFrameAt(raw < 0 ? raw + LOOP_LENGTH : raw, frame)
+  const point = pathPointAt(loop.distance)
+  out.x = point.x + point.dirX * loop.forward + point.rightX * loop.right
+  out.z = point.z + point.dirZ * loop.forward + point.rightZ * loop.right
+  out.yaw = headingFor(
+    point.dirX * loop.headingForward + point.rightX * loop.headingRight,
+    point.dirZ * loop.headingForward + point.rightZ * loop.headingRight,
+  )
+  out.distance = loop.distance
+  out.scale = cornerScale(loop.distance)
   return out
 }
 

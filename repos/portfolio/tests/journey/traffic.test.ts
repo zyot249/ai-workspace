@@ -1,21 +1,25 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { DARK_GLASS_HEX, STREET_LIGHT_LUMINANCE, STREET_NAMES } from '../../app/journey/lamps'
-import { headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, pathPointAt } from '../../app/journey/path'
+import { COURTYARD_DEPTH, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, pathPointAt, PLACES } from '../../app/journey/path'
 import {
-  CAR_CENTER_Y, CAR_COUNT_FULL, CAR_COUNT_LOW_POWER, CAR_LIGHT_OFFSETS, CAR_RIDE_HEIGHT, CAR_SIZE, type Car,
-  carCountFor, carLightColor, carLightIntensity, carPoseAt, CORNER_HIDE, CORNER_SHOW, cornerScale, createCars,
-  createTraffic,
-  EDGE_SHOW, edgeScale, FRONT_LIGHT_HEX, LANE_OFFSET, REAR_LIGHT_HEX, REAR_MIN_INTENSITY, SPEED_MAX, SPEED_MIN,
-  type Traffic, visibilityScale,
+  CAR_CENTER_Y, CAR_COUNT_FULL, CAR_COUNT_LOW_POWER, CAR_LIGHT_OFFSETS, CAR_RIDE_HEIGHT, CAR_ROUTE_END, CAR_SIZE,
+  CAR_TURN_MARGIN, type Car, carCountFor, carLightColor, carLightIntensity, carPoseAt, CORNER_HIDE, CORNER_SHOW,
+  cornerScale, createCars, createTraffic, FRONT_LIGHT_HEX, LANE_OFFSET, LOOP_LENGTH, REAR_LIGHT_HEX,
+  REAR_MIN_INTENSITY, SPEED_MAX, SPEED_MIN, TURN_ARC_LENGTH, type Traffic,
 } from '../../app/journey/traffic'
 import { gainFor, linearLuminance } from '../../app/journey/window-look'
 
 const INTERIOR_WAYPOINTS = PATH_SEGMENTS.slice(1).map(segment => segment.cumStart)
+const BACK_LEG_START = CAR_ROUTE_END + TURN_ARC_LENGTH
 
-function car(lane: 1 | -1, startDistance: number, speed = 3): Car {
-  return { lane, speed, startDistance, bodyColor: 0x3a3a40 }
+function car(startDistance: number, speed = 3): Car {
+  return { speed, startDistance, bodyColor: 0x3a3a40 }
 }
+
+// A car on the forward leg (right lane) at path distance `d`, and one on the back leg (left lane).
+const forwardAt = (d: number, speed = 3) => car(d, speed)
+const backAt = (d: number, speed = 3) => car(BACK_LEG_START + (CAR_ROUTE_END - d), speed)
 
 describe('carCountFor', () => {
   it('gives 12 cars on full, 6 on lowPower and none under reduced motion', () => {
@@ -29,17 +33,15 @@ describe('carCountFor', () => {
 })
 
 describe('createCars', () => {
-  it('splits the cars evenly between the two lanes and keeps speeds in range', () => {
+  it('creates the requested count with speeds in range and a start inside the loop', () => {
     for (const count of [CAR_COUNT_FULL, CAR_COUNT_LOW_POWER]) {
       const cars = createCars(count)
       expect(cars).toHaveLength(count)
-      expect(cars.filter(c => c.lane === 1)).toHaveLength(count / 2)
-      expect(cars.filter(c => c.lane === -1)).toHaveLength(count / 2)
       for (const c of cars) {
         expect(c.speed).toBeGreaterThanOrEqual(SPEED_MIN)
         expect(c.speed).toBeLessThanOrEqual(SPEED_MAX)
         expect(c.startDistance).toBeGreaterThanOrEqual(0)
-        expect(c.startDistance).toBeLessThan(PATH_TOTAL_LENGTH)
+        expect(c.startDistance).toBeLessThan(LOOP_LENGTH)
       }
     }
   })
@@ -52,71 +54,118 @@ describe('createCars', () => {
     expect(createCars(CAR_COUNT_FULL)).toEqual(createCars(CAR_COUNT_FULL))
   })
 
-  it('gives every car in a lane the same speed, so cars in one lane never overtake each other', () => {
-    for (const lane of [1, -1] as const) {
-      const speeds = new Set(createCars(CAR_COUNT_FULL).filter(c => c.lane === lane).map(c => c.speed))
-      expect(speeds.size).toBe(1)
-    }
+  it('gives every car the same speed, so cars on the loop never overtake each other', () => {
+    expect(new Set(createCars(CAR_COUNT_FULL).map(c => c.speed)).size).toBe(1)
   })
 
-  it('keeps same-lane cars at least 4 units apart at every sampled time, wrapping included', () => {
+  it('keeps cars at least 4 units apart along the loop at every sampled time', () => {
     for (const count of [CAR_COUNT_FULL, CAR_COUNT_LOW_POWER]) {
       const cars = createCars(count)
-      for (const lane of [1, -1] as const) {
-        const inLane = cars.filter(c => c.lane === lane)
-        for (const t of [0, 1.7, 13, 60, 1e4, 1e6]) {
-          const distances = inLane.map(c => carPoseAt(c, t).distance).sort((a, b) => a - b)
-          for (let i = 0; i < distances.length; i++) {
-            const next = distances[(i + 1) % distances.length]!
-            const gap = (next - distances[i]! + PATH_TOTAL_LENGTH) % PATH_TOTAL_LENGTH
-            expect(gap, `count ${count} lane ${lane} t ${t}`).toBeGreaterThanOrEqual(4)
-          }
+      for (const t of [0, 1.7, 13, 60, 1e4, 1e6]) {
+        const positions = cars.map(c => ((c.startDistance + c.speed * t) % LOOP_LENGTH + LOOP_LENGTH) % LOOP_LENGTH).sort((a, b) => a - b)
+        for (let i = 0; i < positions.length; i++) {
+          const next = positions[(i + 1) % positions.length]!
+          const gap = (next - positions[i]! + LOOP_LENGTH) % LOOP_LENGTH
+          expect(gap, `count ${count} t ${t}`).toBeGreaterThanOrEqual(4)
         }
       }
     }
   })
 })
 
-describe('carPoseAt', () => {
-  it('wraps past the end of the path in both directions', () => {
-    expect(carPoseAt(car(1, 99, 3), 1).distance).toBeCloseTo(2, 9)
-    expect(carPoseAt(car(-1, 1, 3), 1).distance).toBeCloseTo(98, 9)
-    expect(carPoseAt(car(1, 10, 3), 0).distance).toBe(10)
+describe('CAR_ROUTE_END', () => {
+  it('leaves room for the turnaround arc and a margin before the courtyard entrance', () => {
+    const seg = PATH_SEGMENTS[2]!
+    const entrance = seg.cumStart + Math.hypot(PLACES.courtyard.x - seg.fromX, PLACES.courtyard.z - seg.fromZ) - COURTYARD_DEPTH / 2
+    expect(CAR_ROUTE_END + LANE_OFFSET + CAR_TURN_MARGIN).toBeCloseTo(entrance, 9)
+    expect(CAR_ROUTE_END).toBeLessThan(PATH_TOTAL_LENGTH)
   })
 
-  it('keeps the car LANE_OFFSET from the center line, on its own side of travel', () => {
-    for (const lane of [1, -1] as const) {
-      for (let d = 5; d < PATH_TOTAL_LENGTH; d += 7.3) {
-        const pose = carPoseAt(car(lane, d, 3), 0)
+  it('has a loop of two legs and two half circles', () => {
+    expect(LOOP_LENGTH).toBeCloseTo(2 * CAR_ROUTE_END + 2 * Math.PI * LANE_OFFSET, 9)
+  })
+
+  it('keeps every car, at every sampled time, out of the courtyard and off the road past it', () => {
+    const seg = PATH_SEGMENTS[2]!
+    const entranceAlong = CAR_ROUTE_END + LANE_OFFSET + CAR_TURN_MARGIN - seg.cumStart
+    for (const c of createCars(CAR_COUNT_FULL)) {
+      for (let t = 0; t < 400; t += 0.37) {
+        const pose = carPoseAt(c, t)
+        const along = (pose.x - seg.fromX) * seg.dirX + (pose.z - seg.fromZ) * seg.dirZ
+        expect(along).toBeLessThanOrEqual(entranceAlong - CAR_TURN_MARGIN + 1e-9)
+      }
+    }
+  })
+})
+
+describe('carPoseAt', () => {
+  it('makes a full lap and returns to where it began', () => {
+    const c = car(10, 3)
+    const start = carPoseAt(c, 0)
+    const lap = carPoseAt(c, LOOP_LENGTH / 3)
+    expect(lap.x).toBeCloseTo(start.x, 6)
+    expect(lap.z).toBeCloseTo(start.z, 6)
+    expect(lap.distance).toBeCloseTo(start.distance, 6)
+  })
+
+  it('drives the forward leg toward increasing distance and the back leg toward decreasing distance', () => {
+    expect(carPoseAt(forwardAt(50, 4), 0.5).distance).toBeCloseTo(52, 9)
+    expect(carPoseAt(backAt(50, 4), 0.5).distance).toBeCloseTo(48, 9)
+  })
+
+  it('keeps the car LANE_OFFSET from the center line on each leg, on the right when driving forward', () => {
+    for (let d = 5; d < CAR_ROUTE_END; d += 7.3) {
+      for (const [fixture, side] of [[forwardAt(d), 1], [backAt(d), -1]] as const) {
+        const pose = carPoseAt(fixture, 0)
         const point = pathPointAt(pose.distance)
-        expect(Math.hypot(pose.x - point.x, pose.z - point.z)).toBeCloseTo(LANE_OFFSET, 2)
-        // Signed offset along the path's right vector: +1 lane on the right, -1 lane on the left.
-        expect((pose.x - point.x) * point.rightX + (pose.z - point.z) * point.rightZ).toBeCloseTo(lane * LANE_OFFSET, 6)
+        expect((pose.x - point.x) * point.rightX + (pose.z - point.z) * point.rightZ).toBeCloseTo(side * LANE_OFFSET, 6)
+        expect((pose.x - point.x) * point.dirX + (pose.z - point.z) * point.dirZ).toBeCloseTo(0, 6)
       }
     }
   })
 
-  it('moves the +1 lane toward increasing distance and the -1 lane toward decreasing distance', () => {
-    const forward = carPoseAt(car(1, 50, 4), 0.5).distance
-    const backward = carPoseAt(car(-1, 50, 4), 0.5).distance
-    expect(forward).toBeCloseTo(52, 9)
-    expect(backward).toBeCloseTo(48, 9)
-  })
-
-  it('faces the direction of travel and flips by 180 degrees between lanes', () => {
-    for (const d of [10, 45, 80]) {
+  it('faces the direction of travel on each leg and flips by 180 degrees between legs', () => {
+    for (const d of [10, 45, 70]) {
       const point = pathPointAt(d)
-      const a = carPoseAt(car(1, d, 3), 0).yaw
-      const b = carPoseAt(car(-1, d, 3), 0).yaw
-      expect(a).toBeCloseTo(headingFor(point.dirX, point.dirZ), 9)
-      expect(b).toBeCloseTo(headingFor(-point.dirX, -point.dirZ), 9)
+      const a = carPoseAt(forwardAt(d), 0).yaw
+      const b = carPoseAt(backAt(d), 0).yaw
+      expect(Math.cos(a - headingFor(point.dirX, point.dirZ))).toBeCloseTo(1, 9)
+      expect(Math.cos(b - headingFor(-point.dirX, -point.dirZ))).toBeCloseTo(1, 9)
       expect(Math.cos(a - b)).toBeCloseTo(-1, 9)
     }
   })
 
+  it('moves continuously through both turnarounds: no jump in position or heading', () => {
+    const speed = 3
+    const dt = 0.02
+    const maxStep = speed * dt * 1.001
+    const c = car(0, speed)
+    let previous = { ...carPoseAt(c, 0) }
+    for (let t = dt; t < (LOOP_LENGTH / speed) * 2; t += dt) {
+      const pose = carPoseAt(c, t)
+      // The lane offset flips direction at a corner, where the car is scaled to 0 and so is not drawn.
+      if (pose.scale === 0 || previous.scale === 0) {
+        previous = { ...pose }
+        continue
+      }
+      expect(Math.hypot(pose.x - previous.x, pose.z - previous.z), `t ${t}`).toBeLessThanOrEqual(maxStep)
+      const turn = Math.abs(Math.atan2(Math.sin(pose.yaw - previous.yaw), Math.cos(pose.yaw - previous.yaw)))
+      expect(turn, `t ${t}`).toBeLessThan(speed * dt / LANE_OFFSET * 1.01)
+      previous = { ...pose }
+    }
+  })
+
+  it('swings across the road in the end arc: right lane in, left lane out, bulging past the route end', () => {
+    const seg = PATH_SEGMENTS[2]!
+    const mid = carPoseAt(car(CAR_ROUTE_END + TURN_ARC_LENGTH / 2, 3), 0)
+    const point = pathPointAt(CAR_ROUTE_END)
+    expect((mid.x - point.x) * point.rightX + (mid.z - point.z) * point.rightZ).toBeCloseTo(0, 6)
+    expect((mid.x - point.x) * seg.dirX + (mid.z - point.z) * seg.dirZ).toBeCloseTo(LANE_OFFSET, 6)
+  })
+
   it('gives the same position at t = 1e6 as at the reduced time modulo the lap period', () => {
     for (const c of createCars(CAR_COUNT_FULL)) {
-      const period = PATH_TOTAL_LENGTH / c.speed
+      const period = LOOP_LENGTH / c.speed
       const big = carPoseAt(c, 1e6)
       const small = carPoseAt(c, 1e6 % period)
       expect(big.x).toBeCloseTo(small.x, 3)
@@ -126,13 +175,19 @@ describe('carPoseAt', () => {
 
   it('writes into the provided pose and returns it', () => {
     const out = { x: 0, z: 0, yaw: 0, distance: 0, scale: 0 }
-    expect(carPoseAt(car(1, 50, 3), 0, out)).toBe(out)
+    expect(carPoseAt(forwardAt(50), 0, out)).toBe(out)
     expect(out.distance).toBe(50)
     expect(out.scale).toBe(1)
   })
+
+  it('stays fully visible through both turnarounds, with no fade at the path ends', () => {
+    expect(carPoseAt(forwardAt(0), 0).scale).toBe(1)
+    expect(carPoseAt(car(CAR_ROUTE_END + TURN_ARC_LENGTH / 2), 0).scale).toBe(1)
+    expect(carPoseAt(car(LOOP_LENGTH - TURN_ARC_LENGTH / 2), 0).scale).toBe(1)
+  })
 })
 
-describe('cornerScale, edgeScale and visibilityScale', () => {
+describe('cornerScale', () => {
   it('hides cars within 2.5 units of each interior waypoint and shows them beyond 3.5', () => {
     expect(INTERIOR_WAYPOINTS).toEqual([34, 60])
     for (const corner of INTERIOR_WAYPOINTS) {
@@ -158,23 +213,9 @@ describe('cornerScale, edgeScale and visibilityScale', () => {
     expect(cornerScale(34 + 3)).toBeLessThan(1)
   })
 
-  it('hides cars at both path ends and shows them from 4 units in, so a wrap never pops beside the lens', () => {
-    expect(edgeScale(0)).toBe(0)
-    expect(edgeScale(PATH_TOTAL_LENGTH)).toBe(0)
-    expect(edgeScale(EDGE_SHOW)).toBe(1)
-    expect(edgeScale(PATH_TOTAL_LENGTH - EDGE_SHOW)).toBe(1)
-    expect(edgeScale(PATH_TOTAL_LENGTH / 2)).toBe(1)
-    expect(edgeScale(2)).toBeGreaterThan(0)
-    expect(edgeScale(2)).toBeLessThan(1)
-    expect(carPoseAt(car(1, 0, 3), 0).scale).toBe(0)
-  })
-
-  it('combines both: a car is visible only away from corners and ends', () => {
-    expect(visibilityScale(50)).toBe(1)
-    expect(visibilityScale(34)).toBe(0)
-    expect(visibilityScale(0)).toBe(0)
-    expect(visibilityScale(PATH_TOTAL_LENGTH)).toBe(0)
-    expect(visibilityScale(PATH_TOTAL_LENGTH - 0.5)).toBeLessThan(0.05)
+  it('hides a car at a corner on either leg', () => {
+    expect(carPoseAt(forwardAt(34), 0).scale).toBe(0)
+    expect(carPoseAt(backAt(60), 0).scale).toBe(0)
   })
 })
 
@@ -265,7 +306,7 @@ describe('createTraffic', () => {
   })
 
   it('puts a visible car body center at y -0.78 on its lane position', () => {
-    const fixture = car(1, 50, 3)
+    const fixture = forwardAt(50)
     const traffic = createTraffic([fixture])
     traffic.update(1, 0)
     const bodies = meshNamed(traffic, STREET_NAMES.carBodies)
@@ -279,8 +320,7 @@ describe('createTraffic', () => {
   })
 
   it('places front lights ahead of the body center along travel and rear lights behind, in both lanes', () => {
-    for (const lane of [1, -1] as const) {
-      const fixture = car(lane, 50, 3)
+    for (const [lane, fixture] of [[1, forwardAt(50)], [-1, backAt(50)]] as const) {
       const traffic = createTraffic([fixture])
       traffic.update(1, 0)
       const bodies = meshNamed(traffic, STREET_NAMES.carBodies)
@@ -299,9 +339,9 @@ describe('createTraffic', () => {
     }
   })
 
-  it('hides a car on an interior waypoint and at both path ends, lights included', () => {
-    for (const distance of [34, 60, 0]) {
-      const traffic = createTraffic([car(1, distance, 3)])
+  it('hides a car on an interior waypoint, lights included', () => {
+    for (const distance of [34, 60]) {
+      const traffic = createTraffic([forwardAt(distance)])
       traffic.update(1, 0)
       expect(scaleOf(meshNamed(traffic, STREET_NAMES.carBodies), 0)).toBe(0)
       for (let k = 0; k < 4; k++) expect(scaleOf(meshNamed(traffic, STREET_NAMES.carLights), k)).toBe(0)
@@ -310,7 +350,7 @@ describe('createTraffic', () => {
   })
 
   it('moves the cars every update but rewrites colors only when the quantised ratio changes', () => {
-    const traffic = createTraffic([car(1, 50, 3)])
+    const traffic = createTraffic([forwardAt(50)])
     const bodies = meshNamed(traffic, STREET_NAMES.carBodies)
     const lights = meshNamed(traffic, STREET_NAMES.carLights)
     traffic.update(0.3, 0)
@@ -326,7 +366,7 @@ describe('createTraffic', () => {
   })
 
   it('colors lights by kind: unlit front lights show dark glass, rear lights keep their 20% glow', () => {
-    const traffic = createTraffic([car(1, 50, 3)])
+    const traffic = createTraffic([forwardAt(50)])
     traffic.update(0.05, 0)
     const lights = meshNamed(traffic, STREET_NAMES.carLights)
     const out = new THREE.Color()

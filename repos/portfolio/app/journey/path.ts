@@ -35,6 +35,9 @@ export const PLACES = {
   courtyard: { x: -26, z: -46 },
 } as const
 
+// Front-to-back depth of the home courtyard, along the path. Its house stands at the back.
+export const COURTYARD_DEPTH = 8
+
 // The path is a polyline, not a straight line: it turns 90 degrees twice,
 // between places rather than at them.
 export const WAYPOINTS: readonly Vec2[] = [

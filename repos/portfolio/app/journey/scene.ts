@@ -7,7 +7,7 @@ import { createFacadeUniforms } from './facade-material'
 import { CORNER_BLOCKS } from './footprints'
 import { damp, dampState, lerpLook } from './interpolate'
 import { createLamps, LAMP_SPACING_FULL, LAMP_SPACING_LOW_POWER, STREET_NAMES } from './lamps'
-import { BUILDING_CLEARANCE, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH } from './path'
+import { BUILDING_CLEARANCE, COURTYARD_DEPTH, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH } from './path'
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { seeded } from './random'
@@ -311,7 +311,7 @@ function createMarket(): THREE.Group {
 function createCourtyard(): THREE.Group {
   const group = new THREE.Group()
   const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x55504a, roughness: 0.85 })
-  const depth = 8
+  const depth = COURTYARD_DEPTH
   const width = 7
   const backZ = -depth / 2
   const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.2, depth), wallMaterial)
