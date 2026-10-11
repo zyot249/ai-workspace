@@ -1,0 +1,281 @@
+import * as THREE from 'three'
+import { describe, expect, it, vi } from 'vitest'
+import { VEHICLE_SCALE, VEHICLE_SPECS, VEHICLE_TYPES, type VehicleType } from '../../app/journey/vehicle-specs'
+import { mergeVehicleParts } from '../../app/journey/vehicle-geometry'
+import {
+  attachVehicleModels, disposeVehicleModels, type GltfSource, loadVehicleModels, type VehicleModels,
+} from '../../app/journey/vehicle-models'
+
+vi.mock('../../app/journey/vehicle-geometry', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../app/journey/vehicle-geometry')>()
+  return { ...actual, mergeVehicleParts: vi.fn(actual.mergeVehicleParts) }
+})
+
+const MODEL_HEIGHT = 1.3
+const MODEL_HALF_WIDTH = 0.75
+
+// A stand-in GLB scene: one body block spanning the spec'd front and rear, plus a wheel on the ground.
+function fakeScene(type: VehicleType, map = new THREE.Texture()): THREE.Group {
+  const { frontZ, rearZ } = VEHICLE_SPECS[type]
+  const material = new THREE.MeshStandardMaterial({ map })
+  const length = frontZ - rearZ
+  const body = new THREE.Mesh(new THREE.BoxGeometry(MODEL_HALF_WIDTH * 2, MODEL_HEIGHT - 0.3, length), material)
+  body.position.set(0, 0.3 + (MODEL_HEIGHT - 0.3) / 2, (frontZ + rearZ) / 2)
+  const wheel = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.6), material)
+  wheel.position.set(0.3, 0.3, frontZ - 0.5)
+  const group = new THREE.Group()
+  group.add(body, wheel)
+  return group
+}
+
+function fakeSource(overrides: Partial<Record<VehicleType, THREE.Object3D>> = {}): GltfSource {
+  return async url => {
+    const type = VEHICLE_TYPES.find(candidate => url.endsWith(VEHICLE_SPECS[candidate].file))
+    if (!type) throw new Error(`Unexpected url ${url}`)
+    return { scene: overrides[type] ?? fakeScene(type) }
+  }
+}
+
+describe('loadVehicleModels', () => {
+  it('returns one merged geometry per type, scaled and facing -Z, with one shared texture', async () => {
+    const models = await loadVehicleModels(fakeSource())
+    for (const type of VEHICLE_TYPES) {
+      const box = models.geometries[type].boundingBox!
+      const { frontZ, rearZ } = VEHICLE_SPECS[type]
+      expect(box.min.z).toBeCloseTo(-frontZ * VEHICLE_SCALE, 5)
+      expect(box.max.z).toBeCloseTo(-rearZ * VEHICLE_SCALE, 5)
+      expect(box.min.y).toBeCloseTo(0, 5)
+      expect(box.max.y).toBeCloseTo(MODEL_HEIGHT * VEHICLE_SCALE, 5)
+    }
+    expect(models.map).toBeInstanceOf(THREE.Texture)
+    disposeVehicleModels(models)
+  })
+
+  it('applies every ancestor transform to the parts', async () => {
+    // Three ancestors with different offsets. Their net shift is (0, +0.1, -0.1) model units, small enough
+    // to stay inside the spec tolerance but large enough to tell the world matrix from the local one.
+    const netShift = { y: 0.05 + 0.3 - 0.25, z: 0.1 - 0.2 }
+    const root = new THREE.Group()
+    root.position.set(0, 0.05, 0)
+    const offset = new THREE.Group()
+    offset.position.set(0, 0.3, 0.1)
+    const inner = fakeScene('sedan')
+    inner.position.set(0, -0.25, -0.2)
+    offset.add(inner)
+    root.add(offset)
+    const models = await loadVehicleModels(fakeSource({ sedan: root }))
+    const box = models.geometries.sedan.boundingBox!
+    const { frontZ, rearZ } = VEHICLE_SPECS.sedan
+    expect(box.min.y).toBeCloseTo(netShift.y * VEHICLE_SCALE, 5)
+    expect(box.max.y).toBeCloseTo((MODEL_HEIGHT + netShift.y) * VEHICLE_SCALE, 5)
+    expect(box.min.z).toBeCloseTo(-(frontZ + netShift.z) * VEHICLE_SCALE, 5)
+    expect(box.max.z).toBeCloseTo(-(rearZ + netShift.z) * VEHICLE_SCALE, 5)
+    disposeVehicleModels(models)
+  })
+
+  it('keeps the first palette texture and disposes the other copies', async () => {
+    const [first, second, third] = [new THREE.Texture(), new THREE.Texture(), new THREE.Texture()]
+    const spies = [first, second, third].map(texture => vi.spyOn(texture, 'dispose'))
+    const source = fakeSource({
+      sedan: fakeScene('sedan', first), suv: fakeScene('suv', second), truck: fakeScene('truck', third),
+    })
+    const models = await loadVehicleModels(source)
+    expect(models.map).toBe(first)
+    expect(spies[0]).not.toHaveBeenCalled()
+    expect(spies[1]).toHaveBeenCalledTimes(1)
+    expect(spies[2]).toHaveBeenCalledTimes(1)
+    disposeVehicleModels(models)
+  })
+
+  it('disposes everything built so far when a later model fails its spec', async () => {
+    const [kept, spare] = [new THREE.Texture(), new THREE.Texture()]
+    const keptSpy = vi.spyOn(kept, 'dispose')
+    const spareSpy = vi.spyOn(spare, 'dispose')
+    const tooTall = new THREE.Group()
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3, 2.55), new THREE.MeshStandardMaterial({ map: spare }))
+    slab.position.set(0, 1.5, -0.025)
+    tooTall.add(slab)
+    const merge = vi.mocked(mergeVehicleParts)
+    merge.mockClear()
+    const disposed = vi.spyOn(THREE.BufferGeometry.prototype, 'dispose')
+    try {
+      await expect(loadVehicleModels(fakeSource({ sedan: fakeScene('sedan', kept), suv: tooTall })))
+        .rejects.toThrow(/suv.*does not match/)
+      const merged = merge.mock.results.map(result => result.value as THREE.BufferGeometry)
+      expect(merged).toHaveLength(2)
+      for (const geometry of merged) expect(disposed.mock.contexts).toContain(geometry)
+    } finally {
+      disposed.mockRestore()
+    }
+    expect(keptSpy).toHaveBeenCalledTimes(1)
+    expect(spareSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects with the measured size when a model does not match its spec', async () => {
+    const tooTall = new THREE.Group()
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3, 2.55), new THREE.MeshStandardMaterial({ map: new THREE.Texture() }))
+    slab.position.set(0, 1.5, -0.025)
+    tooTall.add(slab)
+    await expect(loadVehicleModels(fakeSource({ sedan: tooTall }))).rejects.toThrow(/sedan.*does not match/)
+  })
+
+  it('rejects when a model has no textured material', async () => {
+    const bare = new THREE.Group()
+    bare.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial()))
+    await expect(loadVehicleModels(fakeSource({ truck: bare }))).rejects.toThrow(/truck/)
+  })
+
+  it('rejects when a download fails', async () => {
+    const failing: GltfSource = async () => { throw new Error('404') }
+    await expect(loadVehicleModels(failing)).rejects.toThrow('404')
+  })
+
+  it('disposes the geometries and the texture on request', async () => {
+    const models = await loadVehicleModels(fakeSource())
+    const spies = VEHICLE_TYPES.map(type => vi.spyOn(models.geometries[type], 'dispose'))
+    const mapSpy = vi.spyOn(models.map, 'dispose')
+    disposeVehicleModels(models)
+    for (const spy of spies) expect(spy).toHaveBeenCalledTimes(1)
+    expect(mapSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('attachVehicleModels', () => {
+  function stubModels(): VehicleModels {
+    const geometries = { sedan: new THREE.BufferGeometry(), suv: new THREE.BufferGeometry(), truck: new THREE.BufferGeometry() }
+    return { geometries, map: new THREE.Texture() }
+  }
+
+  function fakeTraffic(log: string[] = []) {
+    return {
+      stageModels: vi.fn((_models: VehicleModels) => { log.push('stage') }),
+      showModels: vi.fn(() => { log.push('show') }),
+      discardModels: vi.fn(() => { log.push('discard') }),
+    }
+  }
+
+  it('stages the models, warms them up, then shows them and reports ready', async () => {
+    const models = stubModels()
+    const log: string[] = []
+    const traffic = fakeTraffic(log)
+    const warm = vi.fn(async () => { log.push('warm') })
+    const onReady = vi.fn(() => { log.push('ready') })
+    await attachVehicleModels({ traffic, load: async () => models, isDisposed: () => false, warm, onReady })
+    expect(traffic.stageModels).toHaveBeenCalledWith(models)
+    expect(log).toEqual(['stage', 'warm', 'show', 'ready'])
+  })
+
+  it('shows the models only after the warmup has finished', async () => {
+    const log: string[] = []
+    const traffic = fakeTraffic(log)
+    let finishWarmup: () => void = () => {}
+    const warm = () => new Promise<void>(resolve => { finishWarmup = resolve })
+    const attached = attachVehicleModels({ traffic, load: async () => stubModels(), isDisposed: () => false, warm })
+    await vi.waitFor(() => expect(traffic.stageModels).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(traffic.showModels).not.toHaveBeenCalled()
+    finishWarmup()
+    await attached
+    expect(log).toEqual(['stage', 'show'])
+  })
+
+  it('shows the models straight away when there is no warmup step', async () => {
+    const traffic = fakeTraffic()
+    const onReady = vi.fn()
+    await attachVehicleModels({ traffic, load: async () => stubModels(), isDisposed: () => false, onReady })
+    expect(traffic.showModels).toHaveBeenCalledTimes(1)
+    expect(onReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the box cars and reports the error once when the load fails', async () => {
+    const traffic = fakeTraffic()
+    const onError = vi.fn()
+    const onReady = vi.fn()
+    const failure = new Error('404')
+    await expect(attachVehicleModels({
+      traffic, load: async () => { throw failure }, isDisposed: () => false, onReady, onError,
+    })).resolves.toBeUndefined()
+    expect(traffic.stageModels).not.toHaveBeenCalled()
+    expect(onReady).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledWith(failure)
+  })
+
+  it('reports nothing when the load fails after the scene was disposed', async () => {
+    const traffic = fakeTraffic()
+    const onError = vi.fn()
+    await expect(attachVehicleModels({
+      traffic, load: async () => { throw new Error('aborted') }, isDisposed: () => true, onError,
+    })).resolves.toBeUndefined()
+    expect(onError).not.toHaveBeenCalled()
+    expect(traffic.stageModels).not.toHaveBeenCalled()
+  })
+
+  it('keeps the box cars and disposes the models when traffic rejects them', async () => {
+    const models = stubModels()
+    const mapSpy = vi.spyOn(models.map, 'dispose')
+    const onError = vi.fn()
+    const traffic = { ...fakeTraffic(), stageModels: () => { throw new Error('bad models') } }
+    await attachVehicleModels({ traffic, load: async () => models, isDisposed: () => false, onError })
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(mapSpy).toHaveBeenCalledTimes(1)
+    expect(traffic.showModels).not.toHaveBeenCalled()
+  })
+
+  it('discards the staged models and keeps the box cars when the warmup fails', async () => {
+    const traffic = fakeTraffic()
+    const onError = vi.fn()
+    const onReady = vi.fn()
+    const failure = new Error('compile failed')
+    await expect(attachVehicleModels({
+      traffic, load: async () => stubModels(), isDisposed: () => false, onError, onReady,
+      warm: async () => { throw failure },
+    })).resolves.toBeUndefined()
+    expect(traffic.discardModels).toHaveBeenCalledTimes(1)
+    expect(traffic.showModels).not.toHaveBeenCalled()
+    expect(onReady).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledWith(failure)
+  })
+
+  it('discards the staged models and shows nothing when the scene is disposed during the warmup', async () => {
+    const traffic = fakeTraffic()
+    const onError = vi.fn()
+    const onReady = vi.fn()
+    let disposed = false
+    await attachVehicleModels({
+      traffic, load: async () => stubModels(), isDisposed: () => disposed, onError, onReady,
+      warm: async () => { disposed = true },
+    })
+    expect(traffic.discardModels).toHaveBeenCalledTimes(1)
+    expect(traffic.showModels).not.toHaveBeenCalled()
+    expect(onReady).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('reports nothing when the warmup fails because the scene was disposed', async () => {
+    const traffic = fakeTraffic()
+    const onError = vi.fn()
+    let disposed = false
+    await attachVehicleModels({
+      traffic, load: async () => stubModels(), isDisposed: () => disposed, onError,
+      warm: async () => { disposed = true; throw new Error('context gone') },
+    })
+    expect(traffic.discardModels).toHaveBeenCalledTimes(1)
+    expect(traffic.showModels).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('adds nothing and disposes the models when the scene was disposed before they arrived', async () => {
+    const models = stubModels()
+    const spies = VEHICLE_TYPES.map(type => vi.spyOn(models.geometries[type], 'dispose'))
+    const mapSpy = vi.spyOn(models.map, 'dispose')
+    const traffic = fakeTraffic()
+    const onReady = vi.fn()
+    await attachVehicleModels({ traffic, load: async () => models, isDisposed: () => true, onReady })
+    expect(traffic.stageModels).not.toHaveBeenCalled()
+    expect(onReady).not.toHaveBeenCalled()
+    for (const spy of spies) expect(spy).toHaveBeenCalledTimes(1)
+    expect(mapSpy).toHaveBeenCalledTimes(1)
+  })
+})

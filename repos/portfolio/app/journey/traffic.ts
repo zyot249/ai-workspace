@@ -1,8 +1,10 @@
 import * as THREE from 'three'
-import { DARK_GLASS_HEX, lampIntensity, STREET_LIGHT_LUMINANCE, STREET_NAMES } from './lamps'
+import { DARK_GLASS_HEX, lampIntensity, STREET_LIGHT_LUMINANCE, STREET_NAME_PREFIX, STREET_NAMES } from './lamps'
 import { COURTYARD_DEPTH, headingFor, PATH_SEGMENTS, pathPointAt, PLACES } from './path'
 import { seeded } from './random'
 import { smoothstep } from './sky-mirror'
+import { disposeVehicleModels, type VehicleModels } from './vehicle-models'
+import { VEHICLE_TYPES, type VehicleLightOffset, type VehicleType, vehicleLightOffsets } from './vehicle-specs'
 import { gainFor } from './window-look'
 
 export const LANE_OFFSET = 1.5
@@ -39,6 +41,17 @@ export const REAR_LIGHT_HEX = 0xff2a1a
 export const FRONT_LIGHT_THRESHOLD = 0.2
 export const REAR_MIN_INTENSITY = 0.2
 
+// Road surface is at y = -1. Model geometry has its wheel bottoms at y = 0.
+export const ROAD_Y = -1
+// The Kenney body paint is a dark charcoal swatch, so a plain tint barely shows. This brings it up
+// to roughly the color in BODY_COLORS. Tuned by eye in the browser.
+export const PAINT_COMPENSATION = 2.5
+export const TRAFFIC_GROUP_NAME = `${STREET_NAME_PREFIX}traffic`
+
+export function vehicleBodyName(type: VehicleType): string {
+  return `${STREET_NAMES.carBodies}-${type}`
+}
+
 const CAR_SEED = 9300
 // Jitter is a fraction of the spacing between cars, so gaps along the loop stay at least (1 - JITTER) * spacing.
 const START_JITTER = 0.6
@@ -50,6 +63,7 @@ export interface Car {
   // Position along the loop, 0 to LOOP_LENGTH.
   startDistance: number
   bodyColor: number
+  type: VehicleType
 }
 
 export interface CarPose {
@@ -77,6 +91,7 @@ export function createCars(count: number): Car[] {
       speed,
       startDistance: ((i + START_JITTER * seeded(seed)) / count) * LOOP_LENGTH,
       bodyColor: BODY_COLORS[colorIndex] ?? BODY_COLORS[0],
+      type: VEHICLE_TYPES[i % VEHICLE_TYPES.length] ?? 'sedan',
     })
   }
   return cars
@@ -156,12 +171,12 @@ export function carPoseAt(car: Car, t: number, out: CarPose = { x: 0, z: 0, yaw:
 
 export type CarLightKind = 'front' | 'rear'
 
-// Authored facing -Z: the front is at -Z, the rear at +Z, at body-center height.
-export const CAR_LIGHT_OFFSETS: readonly { x: number; z: number; kind: CarLightKind }[] = [
-  { x: -0.15, z: -0.46, kind: 'front' },
-  { x: 0.15, z: -0.46, kind: 'front' },
-  { x: -0.15, z: 0.46, kind: 'rear' },
-  { x: 0.15, z: 0.46, kind: 'rear' },
+// Box-car fallback. Authored facing -Z: the front is at -Z, the rear at +Z, at body-center height.
+export const CAR_LIGHT_OFFSETS: readonly VehicleLightOffset[] = [
+  { x: -0.15, y: 0, z: -0.46, kind: 'front' },
+  { x: 0.15, y: 0, z: -0.46, kind: 'front' },
+  { x: -0.15, y: 0, z: 0.46, kind: 'rear' },
+  { x: 0.15, y: 0, z: 0.46, kind: 'rear' },
 ]
 
 const litFront = new THREE.Color(FRONT_LIGHT_HEX).multiplyScalar(gainFor(FRONT_LIGHT_HEX, STREET_LIGHT_LUMINANCE))
@@ -184,8 +199,20 @@ const RATIO_QUANTUM = 1e-3
 const LIGHTS_PER_CAR = CAR_LIGHT_OFFSETS.length
 
 export interface Traffic {
-  // Car bodies, then car lights: two draw calls. Empty when there are no cars.
+  // Stable parent of the meshes below. The scene adds it once; the model swap changes its children.
+  readonly group: THREE.Group
+  // The meshes that draw: car bodies, then car lights. Box bodies and lights at first (two meshes), then
+  // one body mesh per vehicle type that has cars plus the lights (up to four). Empty when there are no
+  // cars. Staged model meshes are not listed until `showModels`.
   readonly objects: readonly THREE.InstancedMesh[]
+  // Builds the model body meshes and adds them to the group hidden, so their shaders can compile while
+  // the box cars keep drawing. Ignored when there are no cars, after dispose, or after the first call.
+  // Traffic owns the models from then on and disposes them in `discardModels` or `dispose`.
+  stageModels(models: VehicleModels): void
+  // Shows the staged meshes and drops the box bodies. Does nothing unless models are staged.
+  showModels(): void
+  // Removes the staged meshes and disposes the models. The box cars stay. Does nothing unless models are staged.
+  discardModels(): void
   update(windowLitRatio: number, t: number): void
   dispose(): void
 }
@@ -201,25 +228,57 @@ const UP = new THREE.Vector3(0, 1, 0)
 const pose: CarPose = { x: 0, z: 0, yaw: 0, distance: 0, scale: 0 }
 const scratchColor = new THREE.Color()
 
-export function createTraffic(cars: readonly Car[]): Traffic {
-  if (cars.length === 0) return { objects: [], update() {}, dispose() {} }
+// One body mesh. Instance j draws cars[carIndices[j]], with its wheels on `baseY`.
+interface BodySet {
+  mesh: THREE.InstancedMesh
+  carIndices: readonly number[]
+  baseY: number
+}
 
-  const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.3 })
-  bodyMaterial.name = 'journey-street-car-body'
+function createEmptyTraffic(group: THREE.Group): Traffic {
+  return { group, objects: [], stageModels() {}, showModels() {}, discardModels() {}, update() {}, dispose() {} }
+}
+
+export function createTraffic(cars: readonly Car[]): Traffic {
+  const group = new THREE.Group()
+  group.name = TRAFFIC_GROUP_NAME
+  if (cars.length === 0) return createEmptyTraffic(group)
+
+  const boxMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.3 })
+  boxMaterial.name = 'journey-street-car-body'
+  const boxBodies = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(CAR_SIZE.width, CAR_SIZE.height, CAR_SIZE.length), boxMaterial, cars.length)
+  boxBodies.name = STREET_NAMES.carBodies
+  boxBodies.frustumCulled = false
+  cars.forEach((car, i) => boxBodies.setColorAt(i, scratchColor.set(car.bodyColor)))
+  if (boxBodies.instanceColor) boxBodies.instanceColor.needsUpdate = true
+
   const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })
   lightMaterial.name = 'journey-street-car-light'
-  const bodies = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(CAR_SIZE.width, CAR_SIZE.height, CAR_SIZE.length), bodyMaterial, cars.length)
   const lights = new THREE.InstancedMesh(
     new THREE.BoxGeometry(LIGHT_SIZE.width, LIGHT_SIZE.height, LIGHT_SIZE.depth), lightMaterial, cars.length * LIGHTS_PER_CAR)
-  bodies.name = STREET_NAMES.carBodies
   lights.name = STREET_NAMES.carLights
-  const objects = [bodies, lights] as const
-  for (const mesh of objects) mesh.frustumCulled = false
+  lights.frustumCulled = false
 
-  cars.forEach((car, i) => bodies.setColorAt(i, scratchColor.set(car.bodyColor)))
-  if (bodies.instanceColor) bodies.instanceColor.needsUpdate = true
+  let sets: BodySet[] = [{ mesh: boxBodies, carIndices: cars.map((_, i) => i), baseY: CAR_CENTER_Y }]
+  let offsetsFor: (car: Car) => readonly VehicleLightOffset[] = () => CAR_LIGHT_OFFSETS
+  // Models move from staged to shown, or from staged to discarded. Only the first stageModels call counts.
+  interface ModelState { models: VehicleModels; material: THREE.MeshStandardMaterial; sets: BodySet[] }
+  let staged: ModelState | null = null
+  let shown: ModelState | null = null
+  let modelsOffered = false
+  let disposed = false
 
+  // Stable array, rebuilt on swap. It stays valid when a caller moves the meshes to another parent.
+  let meshes: readonly THREE.InstancedMesh[] = []
+  function fillGroup() {
+    meshes = [...sets.map(set => set.mesh), lights]
+    group.clear()
+    group.add(...meshes)
+  }
+  fillGroup()
+
+  // Light kinds follow the same front, front, rear, rear order in every offset table.
   function writeLightColors(windowLitRatio: number) {
     for (let i = 0; i < cars.length; i++) {
       for (let k = 0; k < LIGHTS_PER_CAR; k++) {
@@ -234,39 +293,103 @@ export function createTraffic(cars: readonly Car[]): Traffic {
   writeLightColors(0)
   let lastKey = 0
 
+  function releaseBoxBodies() {
+    boxBodies.geometry.dispose()
+    boxMaterial.dispose()
+  }
+
+  function releaseModels(state: ModelState) {
+    disposeVehicleModels(state.models)
+    state.material.dispose()
+  }
+
+  function createModelSets(next: VehicleModels, material: THREE.MeshStandardMaterial): BodySet[] {
+    const indicesByType = new Map<VehicleType, number[]>()
+    cars.forEach((car, i) => indicesByType.set(car.type, [...(indicesByType.get(car.type) ?? []), i]))
+    const modelSets: BodySet[] = []
+    for (const type of VEHICLE_TYPES) {
+      const carIndices = indicesByType.get(type)
+      if (!carIndices) continue
+      const mesh = new THREE.InstancedMesh(next.geometries[type], material, carIndices.length)
+      mesh.name = vehicleBodyName(type)
+      mesh.frustumCulled = false
+      mesh.layers.mask = group.layers.mask
+      carIndices.forEach((carIndex, j) => {
+        const car = cars[carIndex]
+        if (car) mesh.setColorAt(j, scratchColor.set(car.bodyColor).multiplyScalar(PAINT_COMPENSATION))
+      })
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+      modelSets.push({ mesh, carIndices, baseY: ROAD_Y })
+    }
+    return modelSets
+  }
+
   return {
-    objects,
+    group,
+    get objects() { return meshes },
+    stageModels(next) {
+      if (disposed || modelsOffered) return
+      modelsOffered = true
+      const material = new THREE.MeshStandardMaterial({ map: next.map, roughness: 0.55, metalness: 0.3 })
+      material.name = 'journey-street-car-body'
+      const modelSets = createModelSets(next, material)
+      for (const set of modelSets) set.mesh.visible = false
+      group.add(...modelSets.map(set => set.mesh))
+      staged = { models: next, material, sets: modelSets }
+    },
+    showModels() {
+      if (disposed || !staged) return
+      shown = staged
+      staged = null
+      for (const set of shown.sets) set.mesh.visible = true
+      sets = shown.sets
+      offsetsFor = car => vehicleLightOffsets(car.type)
+      releaseBoxBodies()
+      fillGroup()
+    },
+    discardModels() {
+      if (disposed || !staged) return
+      group.remove(...staged.sets.map(set => set.mesh))
+      releaseModels(staged)
+      staged = null
+    },
     update(windowLitRatio, t) {
       const key = Math.round(windowLitRatio / RATIO_QUANTUM)
       if (key !== lastKey) {
         lastKey = key
         writeLightColors(windowLitRatio)
       }
-      for (let i = 0; i < cars.length; i++) {
-        const car = cars[i]
-        if (!car) continue
-        carPoseAt(car, t, pose)
-        bodyRotation.setFromAxisAngle(UP, pose.yaw)
-        bodyScale.setScalar(pose.scale)
-        bodyPosition.set(pose.x, CAR_CENTER_Y, pose.z)
-        matrix.compose(bodyPosition, bodyRotation, bodyScale)
-        bodies.setMatrixAt(i, matrix)
-        for (let k = 0; k < LIGHTS_PER_CAR; k++) {
-          const light = CAR_LIGHT_OFFSETS[k]
-          if (!light) continue
-          lightOffset.set(light.x, 0, light.z).applyQuaternion(bodyRotation).multiplyScalar(pose.scale).add(bodyPosition)
-          matrix.compose(lightOffset, bodyRotation, bodyScale)
-          lights.setMatrixAt(i * LIGHTS_PER_CAR + k, matrix)
-        }
+      for (const set of sets) {
+        set.carIndices.forEach((carIndex, j) => {
+          const car = cars[carIndex]
+          if (!car) return
+          carPoseAt(car, t, pose)
+          bodyRotation.setFromAxisAngle(UP, pose.yaw)
+          bodyScale.setScalar(pose.scale)
+          bodyPosition.set(pose.x, set.baseY, pose.z)
+          matrix.compose(bodyPosition, bodyRotation, bodyScale)
+          set.mesh.setMatrixAt(j, matrix)
+          const offsets = offsetsFor(car)
+          for (let k = 0; k < LIGHTS_PER_CAR; k++) {
+            const light = offsets[k]
+            if (!light) continue
+            lightOffset.set(light.x, light.y, light.z).applyQuaternion(bodyRotation).multiplyScalar(pose.scale).add(bodyPosition)
+            matrix.compose(lightOffset, bodyRotation, bodyScale)
+            lights.setMatrixAt(carIndex * LIGHTS_PER_CAR + k, matrix)
+          }
+        })
+        set.mesh.instanceMatrix.needsUpdate = true
       }
-      bodies.instanceMatrix.needsUpdate = true
       lights.instanceMatrix.needsUpdate = true
     },
     dispose() {
-      for (const mesh of objects) {
-        mesh.geometry.dispose()
-        ;(mesh.material as THREE.Material).dispose()
-      }
+      if (disposed) return
+      disposed = true
+      if (staged) releaseModels(staged)
+      if (shown) releaseModels(shown)
+      else releaseBoxBodies()
+      lights.geometry.dispose()
+      ;(lights.material as THREE.Material).dispose()
     },
   }
 }

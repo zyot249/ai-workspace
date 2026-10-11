@@ -51,6 +51,8 @@ const BLOOM_RADIUS = 0.5
 const BLOOM_THRESHOLD = 1.0
 
 export interface PostPipeline {
+  // The HDR target the scene pass draws into. Bind it to compile programs for this pipeline.
+  readonly sceneTarget: THREE.WebGLRenderTarget
   render(): void
   setSize(width: number, height: number, pixelRatio: number): void
   setLook(exposure: number, bloomStrength: number): void
@@ -157,6 +159,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
     if (!complete) { cleanup(); renderer.setRenderTarget(null); drainProbeErrors(gl); return null }
     options.onTargets?.({ composer: chain, bloom: glow, output })
     return {
+      sceneTarget: target,
       render() { preservingState(renderer, () => chain.render()) },
       setSize(w, h, dpr) {
         // Match renderer's integer drawing-buffer allocation at fractional DPR.

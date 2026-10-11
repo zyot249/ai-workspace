@@ -9,7 +9,7 @@ import { damp, dampState, lerpLook } from './interpolate'
 import { createLamps, LAMP_SPACING_FULL, LAMP_SPACING_LOW_POWER, STREET_NAMES } from './lamps'
 import { BUILDING_CLEARANCE, COURTYARD_DEPTH, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH } from './path'
 import type { StopState } from './stops'
-import { createPostPipeline, POST_EMISSIVES, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
+import { createPostPipeline, POST_EMISSIVES, preservingState, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { seeded } from './random'
 import { reflectInPuddles } from './reflect-layer'
 import { createRoad } from './road'
@@ -20,6 +20,7 @@ import { targetFor } from './target'
 import { createThemeController } from './theme-blend'
 import type { Tier } from './tier'
 import { carCountFor, createCars, createTraffic } from './traffic'
+import { attachVehicleModels, loadVehicleModels, type VehicleModels } from './vehicle-models'
 import { windowLookFor } from './window-look'
 import { createWetRoad, WET_WARMUP, type WetRoad, type WetRoadOptions } from './wet-road'
 
@@ -42,6 +43,12 @@ export interface JourneySceneOptions {
   onRenderer?: (renderer: THREE.WebGLRenderer) => void
   onSceneReady?: (ready: { scene: THREE.Scene; camera: THREE.PerspectiveCamera }) => void
   onStateApplied?: (state: Readonly<StopState>) => void
+  // Test seam: replaces the GLB download. The default loads the vehicle GLBs from /models/vehicles/.
+  loadVehicleModels?: () => Promise<VehicleModels>
+  // Called after the vehicle models replace the box cars. Never called if the load fails or the scene is disposed first.
+  onVehiclesReady?: () => void
+  // Called once when the vehicle load or swap fails. The box cars stay.
+  onVehiclesFailed?: (error: unknown) => void
 }
 
 const DAMPING = 0.08
@@ -436,13 +443,44 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
 
   // Street life: lamps follow `lowPower` for count, cars follow reduced motion (none) and `lowPower`.
   const lamps = createLamps(lowPower ? LAMP_SPACING_LOW_POWER : LAMP_SPACING_FULL)
-  const traffic = createTraffic(createCars(carCountFor(tier === 'reduced', lowPower)))
-  scene.add(...lamps.objects, ...traffic.objects)
+  const carCount = carCountFor(tier === 'reduced', lowPower)
+  const traffic = createTraffic(createCars(carCount))
+  scene.add(...lamps.objects, traffic.group)
   // Pools and halos already light the road; reflecting them would double that light.
+  // The traffic group carries only car bodies and car lights, and every mesh `stageModels` adds inherits its layers.
   reflectInPuddles(
     ...lamps.objects.filter(object => object.name === STREET_NAMES.posts || object.name === STREET_NAMES.heads),
-    ...traffic.objects.filter(object => object.name === STREET_NAMES.carBodies || object.name === STREET_NAMES.carLights),
+    traffic.group,
   )
+  // The startup warmup compiles every program before the first scroll; the model body material arrives
+  // later, so it compiles here, before its meshes show. `compile` walks hidden meshes too: it prepares
+  // materials with `traverse`, not `traverseVisible`. A program depends on the render target only through
+  // null versus non-null (tone mapping and output color space). The composer scene pass and the wet-road
+  // reflection both draw into targets, so one compile under the composer target covers both; the direct
+  // pipeline draws to the canvas. The reflection camera sees the same two lights, so the light setup matches.
+  // Runs after the load resolves, by which time `post` holds its final value.
+  async function warmVehicleShaders(): Promise<void> {
+    await preservingState(renderer, () => {
+      renderer.setRenderTarget(post?.sceneTarget ?? null)
+      return renderer.compileAsync(traffic.group, camera, scene)
+    })
+  }
+
+  // Cars start as boxes. The GLB models are staged hidden when they arrive, their shaders compile, and
+  // then they replace the boxes. A failed load or warmup keeps the boxes.
+  if (carCount > 0) {
+    void attachVehicleModels({
+      traffic,
+      load: options.loadVehicleModels ?? (() => loadVehicleModels()),
+      isDisposed: () => disposed,
+      warm: warmVehicleShaders,
+      onReady: options.onVehiclesReady,
+      onError(error) {
+        console.warn('Journey vehicles: the GLB models could not be used. Keeping the box cars.', error)
+        options.onVehiclesFailed?.(error)
+      },
+    })
+  }
 
   const stars = !lowPower ? createStars() : null
   if (stars) { scene.add(stars); reflectInPuddles(stars) }

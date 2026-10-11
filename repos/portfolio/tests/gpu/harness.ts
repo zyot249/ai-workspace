@@ -24,6 +24,7 @@ let appliedState: StopState | null = null
 // The composer renders fullscreen passes after the scene, which resets renderer.info; keep the scene's own draw calls.
 let sceneCalls: number | null = null
 let last = { chapter: 0, progress: 0, time: 0 }
+let vehiclesSettled: Promise<void> = Promise.resolve()
 
 function requireRenderer(): THREE.WebGLRenderer {
   if (!renderer) throw new Error('Mount a journey first')
@@ -60,10 +61,18 @@ const cityGpu = {
   setComponentDark,
   componentResourceCounts,
   unmountComponent,
+  // Settles once the vehicle models show (after their shader warmup) or the swap gives up.
+  waitForVehicles(): Promise<void> {
+    return vehiclesSettled
+  },
   mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number; initialDark?: boolean;
-    directPipeline?: boolean; failWetRoadTarget?: boolean },
+    directPipeline?: boolean; failWetRoadTarget?: boolean; vehicles?: boolean },
     observers?: Pick<JourneySceneOptions, 'onRenderer' | 'onSceneReady' | 'onStateApplied'>) {
     cityGpu.dispose()
+    let settleVehicles: () => void = () => {}
+    vehiclesSettled = new Promise<void>(resolve => { settleVehicles = resolve })
+    // Reduced motion has no cars, so no load starts and nothing would ever settle the promise.
+    if (!options.vehicles || options.tier === 'reduced') settleVehicles()
     canvas = document.createElement('canvas')
     document.body.append(canvas)
     last = { chapter: 0, progress: 0, time: 0 }
@@ -78,6 +87,10 @@ const cityGpu = {
     try {
       journey = createJourneyScene(canvas, options.tier, [{ title: 'GPU test exhibit', date: '2026-10' }], {
         lowPower: options.lowPower,
+        // Existing GPU tests pin box cars, so by default the load never finishes. Pass `vehicles: true` for the real GLBs.
+        loadVehicleModels: options.vehicles ? undefined : () => new Promise<never>(() => {}),
+        onVehiclesReady: settleVehicles,
+        onVehiclesFailed: settleVehicles,
         wetRoad: options.failWetRoadTarget ? { checkComplete: () => false } : undefined,
         onRenderer(value) {
           renderer = value; value.setPixelRatio(1)
@@ -95,6 +108,10 @@ const cityGpu = {
           observers?.onStateApplied?.(state)
         },
       })
+    } catch (error) {
+      // A scene that throws never reports on the vehicles, so settle here or waitForVehicles would hang.
+      settleVehicles()
+      throw error
     } finally {
       window.__cityGpuRendererObserver = previousObserver
     }

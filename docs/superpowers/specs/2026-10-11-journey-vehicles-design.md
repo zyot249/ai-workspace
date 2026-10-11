@@ -15,7 +15,7 @@ Replace the box cars with three recognizable vehicle types: sedan, SUV, and truc
 Success criteria:
 
 - The three silhouettes are distinguishable from the street camera.
-- Added bundle weight is tens of KB per model, not MB.
+- Added download weight is about 170 to 210 KB per model (about 550 KB for three), loaded in the background after the scene starts.
 - Traffic stays within the wet-road reflection cap of 16 draw calls.
 - The U-turn loop, constant-speed spacing, dusk-ramped lights, and per-tier car counts keep working.
 
@@ -26,30 +26,28 @@ Success criteria:
 | Realism approach | GLB models, not procedural geometry | Chosen by the user after a side-by-side preview. |
 | Model source | Kenney Car Kit (CC0) | No attribution, small files. The page at kenney.nl/assets/car-kit states CC0. |
 | Types | Sedan, SUV, truck | Three silhouettes that differ in height and length. |
-| Rendering | One `InstancedMesh` set per type, merged by material | About 9 body-related draw calls. Cloning scene graphs would cost about 60. |
+| Rendering | One `InstancedMesh` per type, one merged geometry per model | Every Kenney model uses a single palette material, so body, wheels, and glass merge into one geometry. That gives 3 body draw calls plus 1 for lights. Cloning scene graphs would cost about 60. |
 | Realism bar | Kenney stylized low-poly | Photoreal models are large and need per-model licence review. |
 
 ## Design
 
 ### Model loading: `vehicle-models.ts` (new)
 
-- Loads three GLBs from `public/models/vehicles/` with `GLTFLoader`.
-- For each model: merge meshes into one geometry per material group (body, glass, wheels and trim), then normalize orientation (front at -Z), scale (real length in scene units), and ground contact (wheels at y = 0).
-- Returns plain data per type: geometry groups, materials, `length`, and light offsets.
+- Loads three GLBs from `public/models/vehicles/` with `GLTFLoader`. The GLBs reference the shared Kenney palette texture by relative path, so `public/models/vehicles/Textures/colormap.png` ships beside them.
+- For each model: merge all meshes into one geometry (one shared material), then normalize orientation (front at -Z), scale (real length in scene units), and ground contact (wheels at y = 0).
+- Returns `{ geometries, map }`: one merged geometry per type, plus the shared palette texture. Lengths, bounds, and light offsets are constants in `vehicle-specs.ts`, and the loader rejects a model whose merged bounds drift from them.
 - Pure normalization and merging logic is separate from the loader call, so unit tests run without WebGL or network.
 
 ### Traffic: `traffic.ts` (changed)
 
 - `Car` gains `type: 'sedan' | 'suv' | 'truck'`. Assignment is deterministic from `CAR_SEED`.
-- `createTraffic` builds instanced meshes per type and per material group. Each mesh is named with the prefix `journey-street-car-` so the wet-road pass can find it by prefix.
-- Loop spacing uses each type's length plus a fixed gap, so a truck never overlaps the car ahead. Cars still share one speed.
+- `createTraffic` builds one instanced mesh per type that has cars, all sharing one material. Each mesh is named with the prefix `journey-street-car-` so the wet-road pass can find it by prefix.
+- Loop spacing is unchanged: one jittered spacing for all cars, and all cars share one speed. No two cars overlap because the minimum gap along the loop (about 9.5 units at full count) is larger than the longest vehicle (about 1.06 units). A unit test checks that margin.
 - Pose logic (`carPoseAt`, `loopFrameAt`, corner scale) is unchanged.
 
 ### Color
 
-Kenney models share one palette texture. The plan is to keep the palette for glass, tires, trim, and lights, and give the body group its own material that applies `instanceColor` from `BODY_COLORS`.
-
-Check before implementing: open the real GLBs and confirm the body can be isolated. If it cannot, drop per-car tint and use baked colors, with the variants Kenney ships for each type.
+Kenney models share one palette texture, and the glass lives inside the body mesh. A per-car tint therefore multiplies the whole model. The body paint is a dark charcoal swatch, so the tint is the existing `BODY_COLORS` value times a compensation factor (`PAINT_COMPENSATION`, 2.5, tuned in the browser). Glass and trim take a faint tint too. If that looks wrong in the manual check, set the factor to give every car a neutral tint and rely on the three silhouettes for variety.
 
 ### Lights
 
@@ -64,10 +62,13 @@ Check before implementing: open the real GLBs and confirm the body can be isolat
 
 ### Loading and failure
 
-- Traffic starts with no cars. The scene does not wait for the models.
-- When all three GLBs load, traffic builds the instanced meshes and adds them to the scene before the next render.
-- If any load fails, traffic falls back to the current box cars. The scene never breaks, and the error is logged once.
-- `dispose()` releases geometries and materials for every type.
+- Traffic starts with the box cars. The scene does not wait for the models.
+- When all three GLBs load, traffic stages the model meshes in its group with `visible = false` (`stageModels`). The box cars keep drawing.
+- The scene then compiles the model shaders with `renderer.compileAsync` before the meshes become visible. `compile` prepares hidden meshes too. The startup warmup compiled every other program, so this keeps a new program from compiling on a frame mid-scroll. One compile covers both the main pass and the wet-road reflection, because both draw into render targets and use the same lights.
+- After the warmup, traffic shows the model meshes and releases the box bodies (`showModels`).
+- If any load or the warmup fails, traffic keeps the box cars and disposes the staged models (`discardModels`). The scene never breaks, and the error is logged once.
+- If the scene is disposed during the load or the warmup, nothing is shown, the models are disposed, and no error is reported.
+- `dispose()` releases geometries and materials for every type, staged or shown.
 
 ## Testing
 
@@ -82,7 +83,9 @@ Unit (`tests/journey/`):
 - Fallback: a rejected load yields box cars and no thrown error.
 - Normalization: front faces -Z, wheels sit at y = 0, length matches the target.
 
-GPU (existing suites): street and wet-road tests must pass, with traffic present.
+- Swap order: models are staged, warmed, then shown. A failed warmup or a dispose during it keeps the box cars.
+
+GPU: street and wet-road tests must pass, with traffic present. `vehicles.spec.ts` checks that drawing the shown models, including the reflection pass, builds no new shader program.
 
 ## Verification
 
