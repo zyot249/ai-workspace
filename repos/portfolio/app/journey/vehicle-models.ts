@@ -1,3 +1,4 @@
+import { attachModels } from './model-swap'
 import * as THREE from 'three'
 import { mergeVehicleParts, type VehiclePart } from './vehicle-geometry'
 import { VEHICLE_SCALE, VEHICLE_SPECS, VEHICLE_TYPES, type VehicleType, vehicleBounds } from './vehicle-specs'
@@ -111,37 +112,5 @@ export interface AttachVehicleModelsOptions {
 // is disposed it reports nothing and shows nothing.
 export async function attachVehicleModels(options: AttachVehicleModelsOptions): Promise<void> {
   const { traffic, load, isDisposed, warm, onReady, onError } = options
-  const report = (error: unknown) => { if (!isDisposed()) onError?.(error) }
-  let models: VehicleModels
-  try {
-    models = await load()
-  } catch (error) {
-    report(error)
-    return
-  }
-  if (isDisposed()) {
-    disposeVehicleModels(models)
-    return
-  }
-  try {
-    traffic.stageModels(models)
-  } catch (error) {
-    disposeVehicleModels(models)
-    report(error)
-    return
-  }
-  // From here traffic owns the models: `discardModels` disposes them.
-  try {
-    await warm?.()
-    if (isDisposed()) {
-      traffic.discardModels()
-      return
-    }
-    traffic.showModels()
-  } catch (error) {
-    traffic.discardModels()
-    report(error)
-    return
-  }
-  onReady?.()
+  return attachModels({ target: traffic, load, disposeModels: disposeVehicleModels, isDisposed, warm, onReady, onError })
 }
