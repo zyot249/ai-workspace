@@ -1,3 +1,7 @@
+import { createPeople, type People } from './people'
+import { peopleLayout } from './people-layout'
+import { attachPeopleModels, loadPeopleModels, type PeopleModels } from './people-models'
+import { PEOPLE_COUNTS } from './people-specs'
 import { HALL_LENGTH, HALL_PILLAR_X, HALL_WALL_X, hallFrameSlots, hallPillarZs } from './hall'
 import * as THREE from 'three'
 import { BASE_FOV, fovForAspect } from './camera'
@@ -50,6 +54,10 @@ export interface JourneySceneOptions {
   onVehiclesReady?: () => void
   // Called once when the vehicle load or swap fails. The box cars stay.
   onVehiclesFailed?: (error: unknown) => void
+  // Background model load; people show only after shader warmup.
+  loadPeopleModels?: () => Promise<PeopleModels>
+  onPeopleReady?: () => void
+  onPeopleFailed?: (error: unknown) => void
 }
 
 const DAMPING = 0.08
@@ -339,11 +347,13 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
 
   let post: PostPipeline | null = null
   let wetRoad: WetRoad | null = null
+  let people: People | null = null
   let disposed = false
   function dispose() {
     if (disposed) return
     disposed = true
     post?.dispose()
+    people?.dispose()
     if (wetRoad) {
       wetRoad.dispose()
       scene.remove(wetRoad.overlay) // its geometry and material are owned by wetRoad, not the scene sweep below
@@ -451,6 +461,30 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     })
   }
 
+  // People stay out of the capped wet-road reflection pass. Reduced motion fetches no models.
+  const peopleField = createPeople(peopleLayout(PEOPLE_COUNTS[tier], hallFrameSlots(projectItems.length)))
+  people = peopleField
+  scene.add(peopleField.group)
+  async function warmPeopleShaders(): Promise<void> {
+    await preservingState(renderer, () => {
+      renderer.setRenderTarget(post?.sceneTarget ?? null)
+      return renderer.compileAsync(peopleField.group, camera, scene)
+    })
+  }
+  if (tier !== 'reduced') {
+    void attachPeopleModels({
+      people: peopleField,
+      load: options.loadPeopleModels ?? (() => loadPeopleModels()),
+      isDisposed: () => disposed,
+      warm: warmPeopleShaders,
+      onReady: options.onPeopleReady,
+      onError(error) {
+        console.warn('Journey people: the GLB models could not be used. Leaving the street empty.', error)
+        options.onPeopleFailed?.(error)
+      },
+    })
+  }
+
   const stars = !lowPower ? createStars() : null
   if (stars) { scene.add(stars); reflectInPuddles(stars) }
   const sky = createSky(lowPower ? 'lite' : 'full', tier === 'reduced')
@@ -508,6 +542,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     facade.uLit.value = state.windowLitRatio
     lamps.update(state.windowLitRatio)
     traffic.update(state.windowLitRatio, lastTime)
+    people?.update(state.windowLitRatio, lastTime, state.cameraDistance)
     road.update(state.wetness, state.skyColor)
     wetRoad?.setLook(state.wetness, state.fogDensity)
     facade.uSkyTint.value.setRGB(...state.skyColor, THREE.SRGBColorSpace)

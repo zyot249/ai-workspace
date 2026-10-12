@@ -25,6 +25,7 @@ let appliedState: StopState | null = null
 let sceneCalls: number | null = null
 let last = { chapter: 0, progress: 0, time: 0 }
 let vehiclesSettled: Promise<void> = Promise.resolve()
+let peopleSettled: Promise<void> = Promise.resolve()
 
 function requireRenderer(): THREE.WebGLRenderer {
   if (!renderer) throw new Error('Mount a journey first')
@@ -65,14 +66,20 @@ const cityGpu = {
   waitForVehicles(): Promise<void> {
     return vehiclesSettled
   },
+  waitForPeople(): Promise<void> {
+    return peopleSettled
+  },
   mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number; initialDark?: boolean;
-    directPipeline?: boolean; failWetRoadTarget?: boolean; vehicles?: boolean },
+    directPipeline?: boolean; failWetRoadTarget?: boolean; vehicles?: boolean; people?: boolean },
     observers?: Pick<JourneySceneOptions, 'onRenderer' | 'onSceneReady' | 'onStateApplied'>) {
     cityGpu.dispose()
     let settleVehicles: () => void = () => {}
     vehiclesSettled = new Promise<void>(resolve => { settleVehicles = resolve })
     // Reduced motion has no cars, so no load starts and nothing would ever settle the promise.
     if (!options.vehicles || options.tier === 'reduced') settleVehicles()
+    let settlePeople: () => void = () => {}
+    peopleSettled = new Promise<void>(resolve => { settlePeople = resolve })
+    if (!options.people || options.tier === 'reduced') settlePeople()
     canvas = document.createElement('canvas')
     document.body.append(canvas)
     last = { chapter: 0, progress: 0, time: 0 }
@@ -91,6 +98,10 @@ const cityGpu = {
         loadVehicleModels: options.vehicles ? undefined : () => new Promise<never>(() => {}),
         onVehiclesReady: settleVehicles,
         onVehiclesFailed: settleVehicles,
+        // Existing GPU tests pin the street without people; opt in for real GLBs.
+        loadPeopleModels: options.people ? undefined : () => new Promise<never>(() => {}),
+        onPeopleReady: settlePeople,
+        onPeopleFailed: settlePeople,
         wetRoad: options.failWetRoadTarget ? { checkComplete: () => false } : undefined,
         onRenderer(value) {
           renderer = value; value.setPixelRatio(1)
@@ -111,6 +122,7 @@ const cityGpu = {
     } catch (error) {
       // A scene that throws never reports on the vehicles, so settle here or waitForVehicles would hang.
       settleVehicles()
+      settlePeople()
       throw error
     } finally {
       window.__cityGpuRendererObserver = previousObserver
