@@ -1,7 +1,7 @@
 # Journey people: walkers, talkers, and hall guides
 
 Date: 2026-10-12
-Status: Draft, pending review
+Status: Implemented, pending manual checks
 Builds on: [journey vehicles](2026-10-11-journey-vehicles-design.md), [city-07 street life](2026-10-09-city-07-street-life-design.md)
 
 ## Problem
