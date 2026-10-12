@@ -1,3 +1,4 @@
+import { HALL_LENGTH, HALL_PILLAR_X, HALL_WALL_X, hallFrameSlots, hallPillarZs } from './hall'
 import * as THREE from 'three'
 import { BASE_FOV, fovForAspect } from './camera'
 import { createContactShadowField, writeLayerShadows } from './contact-shadows'
@@ -113,38 +114,6 @@ function createGate(): THREE.Group {
   return group
 }
 
-const HALL_LENGTH = 16
-const HALL_WALL_X = ROAD_HALF_WIDTH + 1.1
-const HALL_PILLAR_SPACING = 3.5
-
-export interface FrameSlot {
-  side: -1 | 1
-  z: number
-}
-
-// z (in the hall's own local frame, center = 0) of each pillar along one wall.
-export function hallPillarZs(): number[] {
-  const pillarCount = Math.floor(HALL_LENGTH / HALL_PILLAR_SPACING)
-  const zs: number[] = []
-  for (let i = 0; i <= pillarCount; i++) zs.push(HALL_LENGTH / 2 - i * HALL_PILLAR_SPACING)
-  return zs
-}
-
-// One slot per bay between pillars, left wall first (the projects HTML panel
-// covers the right wall's screen position at the projects camera stop — see
-// `stops.ts`). At most 8 projects fit (4 bays per wall at HALL_LENGTH 16);
-// beyond that, extra projects are simply not given a frame.
-export function hallFrameSlots(projectCount: number): FrameSlot[] {
-  const bayCount = Math.floor(HALL_LENGTH / HALL_PILLAR_SPACING)
-  const slots: FrameSlot[] = []
-  for (const side of [-1, 1] as const) {
-    for (let k = 0; k < bayCount; k++) {
-      slots.push({ side, z: HALL_LENGTH / 2 - (k + 0.5) * HALL_PILLAR_SPACING })
-    }
-  }
-  return slots.slice(0, Math.min(projectCount, slots.length))
-}
-
 export interface ExhibitItem {
   title: string
   date?: string
@@ -239,11 +208,11 @@ function createColonnade(projectItems: readonly ExhibitItem[]): THREE.Group {
   for (const side of [-1, 1]) {
     for (const z of pillarZs) {
       const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 3, 8), material)
-      pillar.position.set(side * (ROAD_HALF_WIDTH + 0.6), 0.5, z)
+      pillar.position.set(side * HALL_PILLAR_X, 0.5, z)
       group.add(pillar)
     }
     const architrave = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, HALL_LENGTH), material)
-    architrave.position.set(side * (ROAD_HALF_WIDTH + 0.6), 2.1, 0)
+    architrave.position.set(side * HALL_PILLAR_X, 2.1, 0)
     group.add(architrave)
 
     const wall = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.4, HALL_LENGTH), wallMaterial)

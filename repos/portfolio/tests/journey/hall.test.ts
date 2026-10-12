@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hallFrameSlots, hallPillarZs } from '../../app/journey/scene'
+import { hallFrameSlots, hallPillarZs } from '../../app/journey/hall'
 
 const PILLAR_HALF = 0.26
 const FRAME_HALF_Z = 0.775 // border BoxGeometry depth 1.55 / 2
