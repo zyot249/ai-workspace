@@ -54,7 +54,7 @@ Success criteria:
 
 All functions are pure and deterministic from a seed (`PEOPLE_SEED`).
 
-- **Sidewalk lane.** A walker's line is the path offset by `SIDEWALK_WALK_OFFSET` (3.45, the middle of the 3.0 to 3.9 strip) on one side. Corners are rounded with a quarter-circle arc, reusing the idea in `lane.ts` so there is no position jump.
+- **Sidewalk lane.** A walker's line is the path offset by `SIDEWALK_WALK_OFFSET` (3.65, the outer part of the 3.0 to 3.9 strip, clear of the lamp posts at 3.3) on one side. Corners are rounded with a quarter-circle arc, reusing the idea in `lane.ts` so there is no position jump.
 - **Walkers.** Each walker has a side, a direction, a speed (0.5 to 0.9 units per second), and a start phase. A walker walks to the end of its route, turns about, and walks back. Speeds are slow so that walk-cycle foot speed matches ground speed.
 - **Talkers.** Groups of 2 to 3 stand on a sidewalk stretch that the lamp layout skips and that is at least 1.5 units from any lamp. Members stand about 0.6 units apart on a small circle and face its center.
 - **Guides.** One guide stands on the sidewalk beside a hall frame, facing the wall. The hall wall sits at 4.1 units off the center line and the sidewalk ends at 3.9, so a guide stands at about 3.5 and turns toward the frame at its bay. Guides use bays that hold a project frame (see `hallFrameSlots`), so a site with few projects has fewer guides.
@@ -75,7 +75,7 @@ All functions are pure and deterministic from a seed (`PEOPLE_SEED`).
 - Only people within `PEOPLE_ANIMATE_DISTANCE` (25 units) of the camera's position along the path get a mixer update. Others hold their last pose.
 - Walkers keep advancing their position when far away, so they are in the right place when the camera arrives. Only their skeleton update is skipped.
 - People beyond the fog distance are hidden.
-- One `THREE.Clock`-free time source: `update` receives the scene time, and mixers call `setTime`, so scroll scrubbing and tests are deterministic.
+- `update` receives the scene time, and mixers call `setTime`, so scroll scrubbing and tests are deterministic.
 
 ### Tiers
 
@@ -163,5 +163,5 @@ Manual (a person checks):
 - **Clips:** the Modular pack may have no `talk` or `walk` clip. Mitigation: the first plan task inspects the files, and the fallbacks above apply.
 - **iPhone cost:** skinning 16 meshes may cost frames. Mitigation: tier caps, the distance cutoff, and the baked fallback.
 - **Scale:** people may be too small to read from the street camera. Mitigation: `PERSON_HEIGHT` is one constant, tuned in the browser.
-- **Hall space:** guides stand in a 0.4 unit-wide gap between the sidewalk edge and the wall. Mitigation: they stand on the sidewalk at 3.5, and the layout tests check clearance.
+- **Hall space:** guides stand in a 0.2 unit-wide gap between the sidewalk edge and the wall. Mitigation: they stand on the sidewalk at 3.5, and the layout tests check clearance.
 - **File size:** a character may exceed 250 KB. Mitigation: decimate or pick another.
