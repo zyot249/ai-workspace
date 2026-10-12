@@ -1,0 +1,10 @@
+People models: Quaternius, Ultimate Modular Men pack (casual, business, hoodie)
+Created by Quaternius (quaternius.com), distributed via Poly Pizza (poly.pizza)
+License: Creative Commons Zero (CC0), https://creativecommons.org/publicdomain/zero/1.0/
+Source: https://poly.pizza/bundle/Ultimate-Modular-Men-Pack-ZiH8muWqwQ
+Casual: https://poly.pizza/m/kZ3DmIoGip
+Business: https://poly.pizza/m/JFrLIKqvCH
+Hoodie: https://poly.pizza/m/gKLBoRsyKe
+Attribution is not required.
+Modified: retained Walk, Idle, Wave animations; glTF Transform 4.5.1 Meshopt optimization
+without geometry simplification. Default geometry quantization; no textures.
