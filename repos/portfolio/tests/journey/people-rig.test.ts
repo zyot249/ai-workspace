@@ -130,3 +130,44 @@ describe('vendored GLBs', () => {
     disposePersonTemplate(template)
   })
 })
+
+describe('quantized bind frames', () => {
+  it.each(['casual', 'business', 'hoodie'])('preserves %s vertex poses before and during a walk', async name => {
+    const { readFileSync } = await import('node:fs')
+    const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js')
+    const { MeshoptDecoder } = await import('three/examples/jsm/libs/meshopt_decoder.module.js')
+    const bytes = readFileSync(new URL(`../../public/models/people/${name}.glb`, import.meta.url))
+    const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '')
+    gltf.scene.updateMatrixWorld(true)
+    const parts = collectSkinnedMeshes(gltf.scene)
+    const reference = parts[0]!
+    const { geometry } = mergeSkinnedParts(parts)
+    const merged = new THREE.SkinnedMesh(geometry, new THREE.MeshStandardMaterial())
+    reference.matrix.decompose(merged.position, merged.quaternion, merged.scale)
+    reference.parent!.add(merged)
+    merged.bind(reference.skeleton, reference.bindMatrix)
+    const mixer = new THREE.AnimationMixer(gltf.scene)
+    mixer.clipAction(gltf.animations.find(clip => clip.name === PEOPLE_CLIPS.walk)!).play()
+    for (const step of [0, 0.4]) {
+      mixer.update(step)
+      gltf.scene.updateMatrixWorld(true)
+      let offset = 0
+      for (const part of parts) {
+        const count = part.geometry.index?.count ?? part.geometry.getAttribute('position').count
+        for (const index of [0, Math.floor(count / 2), count - 1]) {
+          const vertex = part.geometry.index?.getX(index) ?? index
+          const source = new THREE.Vector3().fromBufferAttribute(part.geometry.getAttribute('position'), vertex)
+          part.applyBoneTransform(vertex, source).applyMatrix4(part.matrixWorld)
+          const actual = new THREE.Vector3().fromBufferAttribute(geometry.getAttribute('position'), offset + index)
+          merged.applyBoneTransform(offset + index, actual).applyMatrix4(merged.matrixWorld)
+          expect(actual.distanceTo(source), `${part.name} vertex ${index} at ${step}`).toBeLessThan(1e-5)
+        }
+        offset += count
+      }
+    }
+    mixer.stopAllAction()
+    mixer.uncacheRoot(gltf.scene)
+    geometry.dispose()
+    ;(merged.material as THREE.Material).dispose()
+  })
+})

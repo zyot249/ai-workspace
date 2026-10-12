@@ -65,6 +65,33 @@ function bakeColor(geometry: THREE.BufferGeometry, color: THREE.Color): void {
   geometry.setAttribute('color', new THREE.BufferAttribute(data, 3))
 }
 
+// Quantized glTF parts may encode a different vertex frame in each skin's inverse binds.
+function partFrame(mesh: THREE.SkinnedMesh, reference: THREE.SkinnedMesh, indices: ReadonlyMap<string, number>): THREE.Matrix4 {
+  const sourceIndex = mesh.skeleton.bones.findIndex(bone => indices.has(bone.name))
+  const referenceIndex = indices.get(mesh.skeleton.bones[sourceIndex]?.name ?? '')
+  if (referenceIndex === undefined) throw new Error('The person parts share no bones')
+  const frame = reference.bindMatrix.clone().invert()
+    .multiply(reference.skeleton.boneInverses[referenceIndex]!.clone().invert())
+    .multiply(mesh.skeleton.boneInverses[sourceIndex]!)
+    .multiply(mesh.bindMatrix)
+  mesh.skeleton.bones.forEach((bone, i) => {
+    const target = indices.get(bone.name)
+    if (target === undefined) return // remapSkinIndices reports any weighted missing bone.
+    const expected = mesh.skeleton.boneInverses[i]!.clone().multiply(mesh.bindMatrix)
+    const actual = reference.skeleton.boneInverses[target]!.clone().multiply(reference.bindMatrix).multiply(frame)
+    if (!sameMatrix(actual, expected)) throw new Error('The person parts do not share one bind frame')
+  })
+  return frame
+}
+
+function floatAttribute(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): THREE.Float32BufferAttribute {
+  const values = new Float32Array(attribute.count * attribute.itemSize)
+  for (let i = 0; i < attribute.count; i++) {
+    for (let c = 0; c < attribute.itemSize; c++) values[i * attribute.itemSize + c] = attribute.getComponent(i, c)
+  }
+  return new THREE.Float32BufferAttribute(values, attribute.itemSize)
+}
+
 // Merges the modular parts of one character into a single geometry that skins against the first part's
 // skeleton. The parts must share a frame and a texture (or have none); their flat material colors become
 // vertex colors, so one material draws the whole person.
@@ -80,17 +107,17 @@ export function mergeSkinnedParts(meshes: readonly THREE.SkinnedMesh[]): { geome
   const prepared: THREE.BufferGeometry[] = []
   try {
     for (const mesh of meshes) {
-      // Attached skinning cancels the mesh world transform; bind frames and bone inverses define the pose.
-      if (!sameMatrix(mesh.bindMatrix, reference.bindMatrix) || mesh.skeleton.bones.some((bone, i) => {
-        const target = indexByName.get(bone.name)
-        return target !== undefined && !sameMatrix(mesh.skeleton.boneInverses[i]!, reference.skeleton.boneInverses[target]!)
-      })) {
-        throw new Error('The person parts do not share one frame')
-      }
+      const frame = partFrame(mesh, reference, indexByName)
       const material = materialOf(mesh)
       if ((material.map ?? null) !== map) throw new Error('The person parts use different textures')
       const copy = mesh.geometry.clone()
       for (const name of Object.keys(copy.attributes)) if (!KEPT_ATTRIBUTES.has(name)) copy.deleteAttribute(name)
+      // Expand normalized/interleaved attributes before transforming, avoiding integer clamping.
+      for (const name of ['position', 'normal', 'uv', 'skinWeight']) {
+        const attribute = copy.getAttribute(name)
+        if (attribute) copy.setAttribute(name, floatAttribute(attribute))
+      }
+      copy.applyMatrix4(frame)
       remapSkinIndices(copy, mesh.skeleton.bones, indexByName)
       bakeColor(copy, material.color)
       // mergeGeometries needs every part indexed or none; flattening keeps it simple at these polygon counts.
