@@ -80,6 +80,8 @@ function createPerson(entry: Entry, template: PersonTemplate, index: number): Pe
   const current = entry.kind === 'walker' ? actions.walk : actions.talk
   current.play()
   current.time = entry.offset * current.getClip().duration
+  // Distant visible people hold this pose until animation begins near the camera.
+  mixer.update(0)
   const person: Person = {
     entry, outer, model, mixer, actions, current, skinned: collectSkinnedMeshes(model),
     distance: entry.kind === 'fixed' ? entry.distance : walkerPoseAt(entry.walker, 0, walkPose).distance,

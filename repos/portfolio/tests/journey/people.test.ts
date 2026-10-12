@@ -110,6 +110,22 @@ describe('createPeople', () => {
     people.dispose()
   })
 
+  it('keeps the initial bone pose when crossing the animation cutoff at unchanged time', () => {
+    const walker = { ...FULL.walkers[0]!, phase: 0 }
+    const people = createPeople({ walkers: [walker], talkers: [], guides: [] })
+    people.stageModels(fakeModels())
+    people.showModels()
+    const distance = walkerPoseAt(walker, 0).distance
+    people.update(0.5, 0, distance - PEOPLE_ANIMATE_DISTANCE - 0.01)
+    expect(people.group.children[0]!.visible).toBe(true)
+    const bones = people.objects[0]!.skeleton.bones
+    const pose = () => bones.map(bone => [...bone.position.toArray(), ...bone.quaternion.toArray(), ...bone.scale.toArray()])
+    const distantPose = pose()
+    people.update(0.5, 0, distance - PEOPLE_ANIMATE_DISTANCE)
+    expect(pose()).toEqual(distantPose)
+    people.dispose()
+  })
+
   it('clamps the mixer step for a jump in time, and the first update does not advance', () => {
     const people = createPeople(FULL)
     people.stageModels(fakeModels())
