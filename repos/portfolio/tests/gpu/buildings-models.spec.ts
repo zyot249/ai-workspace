@@ -64,3 +64,62 @@ test('a missing set-piece model keeps the primitives and does not break the scen
   expect(result.frame.shaderError).toBeNull()
   expect(result.frame.glError).toBe(0)
 })
+
+test('the kit glows at night and is dark by day', async ({ page }) => {
+  test.setTimeout(GPU_TEST_TIMEOUT_MS)
+  const result = await page.evaluate(async () => {
+    window.cityGpu.mountJourney({ tier: 'full', lowPower: false, buildings: true, initialDark: true })
+    await window.cityGpu.waitForBuildings()
+    const scene = window.cityGpu.getJourneyContext().scene
+    const intensities = () => {
+      const seen = new Set<number>()
+      scene.traverse(object => {
+        const mesh = object as unknown as { isMesh?: boolean; material?: { emissiveIntensity?: number }; name: string }
+        if (mesh.isMesh && (mesh.name.startsWith('journey-scenery') || mesh.name.startsWith('journey-near-building-'))) {
+          seen.add(mesh.material?.emissiveIntensity ?? 0)
+        }
+      })
+      return Math.max(0, ...seen)
+    }
+    window.cityGpu.renderJourney({ chapter: 0 })
+    window.cityGpu.setJourneyTheme(false, { animate: false })
+    window.cityGpu.renderJourney({ chapter: 0 })
+    const day = intensities()
+    window.cityGpu.setJourneyTheme(true, { animate: false })
+    window.cityGpu.renderJourney({ chapter: 3 })
+    const night = intensities()
+    window.cityGpu.dispose()
+    return { day, night }
+  })
+  expect(result.day).toBeCloseTo(0, 5)
+  expect(result.night).toBeGreaterThan(0)
+})
+
+test('a scene disposed while the models are still loading shows nothing and throws nothing', async ({ page }) => {
+  test.setTimeout(GPU_TEST_TIMEOUT_MS)
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.route('**/models/buildings/*.glb', async route => {
+    await new Promise(resolve => setTimeout(resolve, 500))
+    await route.continue()
+  })
+  await page.evaluate(async () => {
+    window.cityGpu.mountJourney({ tier: 'full', lowPower: false, buildings: true })
+    window.cityGpu.dispose()
+    await window.cityGpu.waitForBuildings()
+  })
+  await page.waitForTimeout(1500)
+  expect(errors).toEqual([])
+})
+
+test('reduced motion still downloads the building models', async ({ page }) => {
+  test.setTimeout(GPU_TEST_TIMEOUT_MS)
+  const requests: string[] = []
+  page.on('request', request => { if (request.url().includes('/models/buildings/')) requests.push(request.url()) })
+  await page.evaluate(async () => {
+    window.cityGpu.mountJourney({ tier: 'reduced', lowPower: false, buildings: true })
+    await window.cityGpu.waitForBuildings()
+    window.cityGpu.dispose()
+  })
+  expect(requests.length).toBeGreaterThan(0)
+})

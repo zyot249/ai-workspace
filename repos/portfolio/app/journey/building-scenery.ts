@@ -1,4 +1,5 @@
 // app/journey/building-scenery.ts
+import { applyBuildingGlow } from './building-glow'
 import { type BuildingModels, disposeBuildingModels } from './building-models'
 import type { ModelSwapTarget } from './model-swap'
 
@@ -12,6 +13,8 @@ export interface SceneryPart {
 }
 
 export interface BuildingScenery extends ModelSwapTarget<BuildingModels> {
+  // Ramps the night glow on the staged models. Does nothing before staging or after release.
+  update(windowLitRatio: number): void
   dispose(): void
 }
 
@@ -46,6 +49,10 @@ export function createBuildingScenery(parts: readonly SceneryPart[]): BuildingSc
     showModels() {
       if (disposed || !owned) return
       for (const part of parts) part.show()
+    },
+    update(windowLitRatio) {
+      if (disposed || !owned) return
+      applyBuildingGlow(owned, windowLitRatio)
     },
     discardModels() {
       if (disposed || !owned) return

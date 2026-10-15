@@ -2,6 +2,7 @@
 import { expect, test } from '@playwright/test'
 import { MAX_NEAR_MESHES, NEAR_MESH_PREFIX } from '../../app/journey/building-specs'
 import { REFLECT_LAYER } from '../../app/journey/reflect-layer'
+import { PASS_DRAW_CALL_BUDGET, WET_ROAD_NAME } from '../../app/journey/wet-road'
 
 const GPU_TEST_TIMEOUT_MS = 120_000
 // Full has 24 near buildings. Lite scales that by 0.6 and rounds: 14.
@@ -60,4 +61,20 @@ test('the near boxes stay visible until the models load', async ({ page }) => {
   })
   expect(result.visible).toBe(true)
   expect(result.frame.shaderError).toBeNull()
+})
+
+test('with the near GLBs the wet-road pass stays within its draw-call budget', async ({ page }) => {
+  test.setTimeout(GPU_TEST_TIMEOUT_MS)
+  const result = await page.evaluate(async ({ wetRoadName }) => {
+    window.cityGpu.mountJourney({ tier: 'full', lowPower: false, buildings: true, vehicles: true, people: true })
+    await window.cityGpu.waitForBuildings()
+    await window.cityGpu.waitForVehicles()
+    window.cityGpu.renderJourney({ chapter: 2 })
+    const scene = window.cityGpu.getJourneyContext().scene
+    const stats = (scene.getObjectByName(wetRoadName)?.userData.wetRoad as { stats: { lastDrawCalls: number } } | undefined)?.stats
+    window.cityGpu.dispose()
+    return stats?.lastDrawCalls ?? null
+  }, { wetRoadName: WET_ROAD_NAME })
+  expect(result).not.toBeNull()
+  expect(result!).toBeLessThanOrEqual(PASS_DRAW_CALL_BUDGET)
 })

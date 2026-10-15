@@ -77,6 +77,18 @@ describe('createBuildingScenery', () => {
     scenery.discardModels()
     expect(a.calls).toEqual([])
   })
+
+  it('update passes the lit ratio to the glow only once the models are staged', async () => {
+    const glow = await import('../../app/journey/building-glow')
+    const apply = vi.spyOn(glow, 'applyBuildingGlow').mockImplementation(() => {})
+    const scenery = createBuildingScenery([part()])
+    scenery.update(0.5)
+    expect(apply).not.toHaveBeenCalled()
+    scenery.stageModels(fakeModels)
+    scenery.update(0.5)
+    expect(apply).toHaveBeenCalledWith(fakeModels, 0.5)
+    apply.mockRestore()
+  })
 })
 
 it('releases the failing part too when stage partially allocates', () => {

@@ -586,6 +586,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     sun.position.set(...light.position)
     facade.uLit.value = state.windowLitRatio
     lamps.update(state.windowLitRatio)
+    scenery?.update(state.windowLitRatio)
     traffic.update(state.windowLitRatio, lastTime)
     people?.update(state.windowLitRatio, lastTime, state.cameraDistance)
     road.update(state.wetness, state.skyColor)
