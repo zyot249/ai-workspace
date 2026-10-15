@@ -1,4 +1,4 @@
-import { headingFor, PATH_SEGMENTS, type PathSegment, PLACES } from './path'
+import { headingFor, pathSegmentAt, PLACES } from './path'
 
 // Axis-aligned-in-its-own-frame footprint for a set-piece: keeps generic
 // background buildings (and corner-blocking props) from landing inside it.
@@ -11,15 +11,10 @@ export interface Footprint {
   halfZ: number
 }
 
-function segmentAt(index: number): PathSegment {
-  const segment = PATH_SEGMENTS[index]
-  if (!segment) throw new Error(`expected path segment ${index}`)
-  return segment
-}
 
-const seg1 = segmentAt(0)
-const seg2 = segmentAt(1)
-const seg3 = segmentAt(2)
+const seg1 = pathSegmentAt(0)
+const seg2 = pathSegmentAt(1)
+const seg3 = pathSegmentAt(2)
 
 export const FOOTPRINTS: readonly Footprint[] = [
   { x: PLACES.entrance.x, z: PLACES.entrance.z, heading: headingFor(seg1.dirX, seg1.dirZ), halfX: 4, halfZ: 1.2 },

@@ -154,3 +154,26 @@ export function clearsSidewalks(x: number, z: number, halfExtent = 0): boolean {
   return SIDEWALK_RECTS.every(([minX, minZ, maxX, maxZ]) =>
     x < minX - margin || x > maxX + margin || z < minZ - margin || z > maxZ + margin)
 }
+
+export function pathSegmentAt(index: number): PathSegment {
+  const segment = PATH_SEGMENTS[index]
+  if (!segment) throw new Error(`expected path segment ${index}`)
+  return segment
+}
+
+// The point on the path polyline nearest to (x, z).
+export function closestPathPoint(x: number, z: number): Vec2 {
+  let best: Vec2 = { x: PATH_SEGMENTS[0]?.fromX ?? 0, z: PATH_SEGMENTS[0]?.fromZ ?? 0 }
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const segment of PATH_SEGMENTS) {
+    const along = Math.min(Math.max((x - segment.fromX) * segment.dirX + (z - segment.fromZ) * segment.dirZ, 0), segment.length)
+    const px = segment.fromX + segment.dirX * along
+    const pz = segment.fromZ + segment.dirZ * along
+    const distance = Math.hypot(x - px, z - pz)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = { x: px, z: pz }
+    }
+  }
+  return best
+}

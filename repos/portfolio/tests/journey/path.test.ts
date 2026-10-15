@@ -68,3 +68,27 @@ describe('clearsPath', () => {
     expect(clearsPath(40, 0, 3)).toBe(true)
   })
 })
+
+import { closestPathPoint, pathSegmentAt } from '../../app/journey/path'
+
+describe('pathSegmentAt', () => {
+  it('returns the segment at an index and throws past the end', () => {
+    expect(pathSegmentAt(0)).toBe(PATH_SEGMENTS[0])
+    expect(() => pathSegmentAt(PATH_SEGMENTS.length)).toThrow('expected path segment')
+  })
+})
+
+describe('closestPathPoint', () => {
+  it('projects onto the nearest leg', () => {
+    // First leg runs along x = 0 from z = 8 to z = -26.
+    expect(closestPathPoint(5, -10)).toEqual({ x: 0, z: -10 })
+  })
+
+  it('clamps to a leg end', () => {
+    expect(closestPathPoint(0, 20)).toEqual({ x: 0, z: 8 })
+  })
+
+  it('returns the point itself when it is on the path', () => {
+    expect(closestPathPoint(-26, -40)).toEqual({ x: -26, z: -40 })
+  })
+})
