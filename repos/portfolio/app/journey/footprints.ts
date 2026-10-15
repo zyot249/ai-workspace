@@ -1,4 +1,5 @@
 import { headingFor, pathSegmentAt, PLACES } from './path'
+import { GATE_FOOTPRINT_HALF_X, GATE_FOOTPRINT_HALF_Z } from './setpiece-layout'
 
 // Axis-aligned-in-its-own-frame footprint for a set-piece: keeps generic
 // background buildings (and corner-blocking props) from landing inside it.
@@ -17,7 +18,7 @@ const seg2 = pathSegmentAt(1)
 const seg3 = pathSegmentAt(2)
 
 export const FOOTPRINTS: readonly Footprint[] = [
-  { x: PLACES.entrance.x, z: PLACES.entrance.z, heading: headingFor(seg1.dirX, seg1.dirZ), halfX: 4, halfZ: 1.2 },
+  { x: PLACES.entrance.x, z: PLACES.entrance.z, heading: headingFor(seg1.dirX, seg1.dirZ), halfX: GATE_FOOTPRINT_HALF_X, halfZ: GATE_FOOTPRINT_HALF_Z },
   // halfZ covers HALL_MAX_LENGTH / 2 + margin, not just the base length, so
   // background scenery stays clear even when the hall grows for more projects.
   { x: PLACES.hall.x, z: PLACES.hall.z, heading: headingFor(seg1.dirX, seg1.dirZ), halfX: 4.5, halfZ: 10.5 },

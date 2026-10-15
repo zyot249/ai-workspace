@@ -2,15 +2,17 @@
 import * as THREE from 'three'
 
 export interface ArchSpec {
-  // Width between the two ends, along x.
+  // Width between the two inner feet on the ground, along x.
   span: number
-  // How far the underside at the middle rises above the underside at the ends.
+  // Height of the underside at the middle.
   rise: number
-  // Vertical thickness of the arch band.
+  // Thickness of the band at the middle. The band is `footWidth` wide at the ground.
   thickness: number
+  // Width of each foot on the ground, measured outward from the inner foot.
+  footWidth: number
   // Depth along z.
   depth: number
-  // Number of straight pieces the curve is cut into. At least 2.
+  // Number of straight pieces each curve is cut into. At least 2.
   segments: number
   // Every vertex gets this uv, so the arch samples one flat color of a palette texture.
   uv: readonly [number, number]
@@ -20,17 +22,23 @@ function requirePositive(name: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`Arch ${name} must be a positive number, got ${value}`)
 }
 
-// A band that follows the parabola y = rise * (1 - (x / half)^2). The underside meets y = 0 at both ends, so the
-// ends stand flat on a base. The pivot is the center of the base: x and z centered, y = 0 at the ends.
+// A band between two nested parabolas that both end on y = 0:
+//   underside  y = rise * (1 - (x / innerHalf)^2)
+//   top        y = (rise + thickness) * (1 - (x / outerHalf)^2)
+// The band is `thickness` thick at the middle and `footWidth` wide at each foot, and the feet are flat on the
+// ground. The pivot is the center of the span: x and z centered, y = 0 on the ground.
 export function parabolicArchGeometry(spec: ArchSpec): THREE.BufferGeometry {
-  const { span, rise, thickness, depth, segments, uv } = spec
+  const { span, rise, thickness, footWidth, depth, segments, uv } = spec
   requirePositive('span', span)
   requirePositive('rise', rise)
   requirePositive('thickness', thickness)
+  requirePositive('footWidth', footWidth)
   requirePositive('depth', depth)
   if (!Number.isInteger(segments) || segments < 2) throw new Error(`Arch segments must be an integer of at least 2, got ${segments}`)
 
-  const half = span / 2
+  const innerHalf = span / 2
+  const outerHalf = innerHalf + footWidth
+  const outerHeight = rise + thickness
   const halfDepth = depth / 2
   const positions: number[] = []
   const normals: number[] = []
@@ -42,19 +50,30 @@ export function parabolicArchGeometry(spec: ArchSpec): THREE.BufferGeometry {
     return positions.length / 3 - 1
   }
 
-  const stations = Array.from({ length: segments + 1 }, (_, i) => {
-    const x = -half + (span * i) / segments
-    const under = rise * (1 - (x / half) ** 2)
-    const slope = (-2 * rise * x) / (half * half)
+  // Upward unit normal of y = height * (1 - (x / half)^2) at x.
+  function curveNormal(x: number, height: number, half: number): [number, number] {
+    const slope = (-2 * height * x) / (half * half)
     const length = Math.hypot(slope, 1)
-    return { x, under, over: under + thickness, nx: -slope / length, ny: 1 / length }
+    return [-slope / length, 1 / length]
+  }
+
+  const stations = Array.from({ length: segments + 1 }, (_, i) => {
+    const u = i / segments
+    const xInner = -innerHalf + span * u
+    const xOuter = -outerHalf + 2 * outerHalf * u
+    const [inx, iny] = curveNormal(xInner, rise, innerHalf)
+    const [onx, ony] = curveNormal(xOuter, outerHeight, outerHalf)
+    return {
+      xInner, yInner: rise * (1 - (xInner / innerHalf) ** 2), inx, iny,
+      xOuter, yOuter: outerHeight * (1 - (xOuter / outerHalf) ** 2), onx, ony,
+    }
   })
 
-  // Top strip (normals up along the curve), then the underside strip (normals down), then the two faces.
-  const top = stations.map(s => [vertex(s.x, s.over, -halfDepth, s.nx, s.ny, 0), vertex(s.x, s.over, halfDepth, s.nx, s.ny, 0)] as const)
-  const bottom = stations.map(s => [vertex(s.x, s.under, -halfDepth, -s.nx, -s.ny, 0), vertex(s.x, s.under, halfDepth, -s.nx, -s.ny, 0)] as const)
-  const front = stations.map(s => [vertex(s.x, s.under, halfDepth, 0, 0, 1), vertex(s.x, s.over, halfDepth, 0, 0, 1)] as const)
-  const back = stations.map(s => [vertex(s.x, s.under, -halfDepth, 0, 0, -1), vertex(s.x, s.over, -halfDepth, 0, 0, -1)] as const)
+  // Top strip (normals up along the outer curve), underside strip (normals down), then the two faces.
+  const top = stations.map(s => [vertex(s.xOuter, s.yOuter, -halfDepth, s.onx, s.ony, 0), vertex(s.xOuter, s.yOuter, halfDepth, s.onx, s.ony, 0)] as const)
+  const bottom = stations.map(s => [vertex(s.xInner, s.yInner, -halfDepth, -s.inx, -s.iny, 0), vertex(s.xInner, s.yInner, halfDepth, -s.inx, -s.iny, 0)] as const)
+  const front = stations.map(s => [vertex(s.xInner, s.yInner, halfDepth, 0, 0, 1), vertex(s.xOuter, s.yOuter, halfDepth, 0, 0, 1)] as const)
+  const back = stations.map(s => [vertex(s.xInner, s.yInner, -halfDepth, 0, 0, -1), vertex(s.xOuter, s.yOuter, -halfDepth, 0, 0, -1)] as const)
 
   for (let i = 0; i < segments; i++) {
     const [a, b] = top[i]!
@@ -71,14 +90,16 @@ export function parabolicArchGeometry(spec: ArchSpec): THREE.BufferGeometry {
     indices.push(kl, kh, knl, knl, kh, knh)
   }
 
+  // Flat feet: one quad on the ground under each end, facing down.
   for (const side of [-1, 1] as const) {
-    const x = side * half
+    const near = side * innerHalf
+    const far = side * outerHalf
+    const [first, second] = side < 0 ? [far, near] : [near, far]
     const p = [
-      vertex(x, 0, -halfDepth, side, 0, 0), vertex(x, 0, halfDepth, side, 0, 0),
-      vertex(x, thickness, halfDepth, side, 0, 0), vertex(x, thickness, -halfDepth, side, 0, 0),
+      vertex(first, 0, -halfDepth, 0, -1, 0), vertex(first, 0, halfDepth, 0, -1, 0),
+      vertex(second, 0, halfDepth, 0, -1, 0), vertex(second, 0, -halfDepth, 0, -1, 0),
     ] as const
-    if (side < 0) indices.push(p[0], p[1], p[2], p[0], p[2], p[3])
-    else indices.push(p[0], p[2], p[1], p[0], p[3], p[2])
+    indices.push(p[0], p[2], p[1], p[0], p[3], p[2])
   }
 
   const uvs = Array.from({ length: positions.length / 3 }, () => [uv[0], uv[1]]).flat()

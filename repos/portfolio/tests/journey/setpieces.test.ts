@@ -1,11 +1,11 @@
 // tests/journey/setpieces.test.ts
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import { HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME, SET_PIECE_ROLES, SET_PIECE_SPECS } from '../../app/journey/building-specs'
+import { GATE_WHITE_UV, HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME, SET_PIECE_ROLES, SET_PIECE_SPECS } from '../../app/journey/building-specs'
 import type { BuildingModels } from '../../app/journey/building-models'
 import { createSetPieces, placeOnPath } from '../../app/journey/setpieces'
 import { parabolicArchGeometry } from '../../app/journey/arch-geometry'
-import { gateArch, HOUSE_FRONT_Z, setPieceLayout } from '../../app/journey/setpiece-layout'
+import { GATE_FOOTPRINT_HALF_X, gateLayout, HOUSE_FRONT_Z, setPieceLayout } from '../../app/journey/setpiece-layout'
 
 function fakeModels(materialNames: readonly string[] = ['palette']): BuildingModels {
   const materials = materialNames.map(name => new THREE.MeshStandardMaterial({ name }))
@@ -52,7 +52,8 @@ describe('createSetPieces', () => {
     expect(setPieces.group.visible).toBe(false)
     for (const child of setPieces.group.children) {
       const meshes = child.children.filter(object => (object as THREE.Mesh).isMesh)
-      expect(meshes).toHaveLength(2)
+      // The gate is white concrete in the beam's one material. The other groups keep every material.
+      expect(meshes).toHaveLength(child.name.endsWith('gate') ? 1 : 2)
     }
     expect(fb.gate.visible).toBe(true)
     setPieces.show()
@@ -70,27 +71,47 @@ describe('createSetPieces', () => {
     expect(mesh.geometry.getAttribute('position').count).toBe(layout.market.length * 24)
   })
 
-  it('adds the gate arch to the gate mesh, reaching above the pillars', () => {
+  it('merges the arch, piers, and canopies into one gate mesh, rising from the ground', () => {
     const setPieces = createSetPieces(fallbacks())
     setPieces.stage(fakeModels())
     const gateGroup = setPieces.group.children.find(child => child.name.endsWith('gate'))!
     const meshes = gateGroup.children.filter(object => (object as THREE.Mesh).isMesh) as THREE.Mesh[]
     expect(meshes).toHaveLength(1)
-    const { segments, ...spec } = gateArch()
-    const archVertices = parabolicArchGeometry({ ...spec, segments, uv: [0, 0] }).getAttribute('position').count
-    const pillarCount = setPieceLayout().gate.length
-    expect(meshes[0]!.geometry.getAttribute('position').count).toBe(pillarCount * 24 + archVertices)
+    const { arch: { baseY, ...spec }, boxes } = gateLayout()
+    const archVertices = parabolicArchGeometry({ ...spec, uv: GATE_WHITE_UV }).getAttribute('position').count
+    // One box (24 vertices) per pier and canopy.
+    expect(meshes[0]!.geometry.getAttribute('position').count).toBe(boxes.length * 24 + archVertices)
     const box = new THREE.Box3().setFromObject(gateGroup)
-    expect(box.max.y).toBeCloseTo(spec.baseY + spec.rise + spec.thickness, 4)
-    expect(box.max.x - box.min.x).toBeCloseTo(spec.span, 4)
+    expect(box.max.y).toBeCloseTo(baseY + spec.rise + spec.thickness, 4)
+    expect(box.min.y).toBeCloseTo(baseY, 4)
+    // The canopies reach the footprint edge on both sides.
+    expect(box.max.x - box.min.x).toBeCloseTo(GATE_FOOTPRINT_HALF_X * 2, 4)
   })
 
-  it('fails the stage and shows nothing when the beam model has no uv for the arch', () => {
+  it('colors the whole gate one white palette tile', () => {
+    const setPieces = createSetPieces(fallbacks())
+    setPieces.stage(fakeModels())
+    const gateGroup = setPieces.group.children.find(child => child.name.endsWith('gate'))!
+    const meshes = gateGroup.children.filter(object => (object as THREE.Mesh).isMesh) as THREE.Mesh[]
+    for (const mesh of meshes) {
+      const uv = mesh.geometry.getAttribute('uv')
+      for (let i = 0; i < uv.count; i++) {
+        expect(uv.getX(i)).toBeCloseTo(GATE_WHITE_UV[0], 6)
+        expect(uv.getY(i)).toBeCloseTo(GATE_WHITE_UV[1], 6)
+      }
+    }
+    // Other groups keep the model's own uv.
+    const market = setPieces.group.children.find(child => child.name.endsWith('market'))!
+    const marketUv = (market.children.find(object => (object as THREE.Mesh).isMesh) as THREE.Mesh).geometry.getAttribute('uv')
+    expect(Array.from(marketUv.array).some(value => Math.abs(value - GATE_WHITE_UV[0]) > 1e-3 && Math.abs(value - GATE_WHITE_UV[1]) > 1e-3)).toBe(true)
+  })
+
+  it('fails the stage and shows nothing when the beam model has no part to take the arch material from', () => {
     const fb = fallbacks()
     const setPieces = createSetPieces(fb)
     const models = fakeModels()
-    models.setPieces.beam.parts[0]!.geometry.deleteAttribute('uv')
-    expect(() => setPieces.stage(models)).toThrow('uv')
+    ;(models.setPieces.beam as { parts: unknown[] }).parts = []
+    expect(() => setPieces.stage(models)).toThrow('beam')
     expect(setPieces.group.children).toHaveLength(0)
     expect(fb.gate.visible).toBe(true)
   })
@@ -153,11 +174,12 @@ it('releases all temporary and merged geometry when one material group fails', (
     // Every placement clone was disposed.
     const disposed = new Set(dispose.mock.contexts)
     for (const result of clone.mock.results) expect(disposed.has(result.value)).toBe(true)
-    // Plus the gate arch, the gate's two merged meshes (released with the failed stage), and the hall's first
-    // successful material merge.
-    const archCount = 1
-    const gateMergedMeshes = 2
+    // The gate succeeds and the hall fails, because the hall mixes the broken beam with the columns. The gate builds
+    // no clones: its four boxes and its arch are temporaries, and its one merged mesh is released with the failed
+    // stage. The hall's first successful material merge is the last disposal.
+    const gateTemporaries = 5
+    const gateMergedMeshes = 1
     const hallFirstMerge = 1
-    expect(dispose.mock.calls.length).toBe(clone.mock.calls.length + archCount + gateMergedMeshes + hallFirstMerge)
+    expect(dispose.mock.calls.length).toBe(clone.mock.calls.length + gateTemporaries + gateMergedMeshes + hallFirstMerge)
   } finally { clone.mockRestore(); dispose.mockRestore() }
 })

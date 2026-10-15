@@ -9,7 +9,7 @@ export const BUILDING_ASSET_BUDGET_BYTES = 1_500_000
 export const MAX_SET_PIECE_DRAW_CALLS = 12
 export const MAX_NEAR_MESHES = 6
 
-export const SET_PIECE_ROLES = ['gatePillar', 'beam', 'hallColumn', 'hallWall', 'stall', 'house'] as const
+export const SET_PIECE_ROLES = ['beam', 'hallColumn', 'hallWall', 'stall', 'house'] as const
 export type SetPieceRole = (typeof SET_PIECE_ROLES)[number]
 
 export interface PieceSpec {
@@ -24,7 +24,6 @@ export interface PieceSpec {
 
 // Rows printed by `row.mjs` in Task 1, one per role.
 export const SET_PIECE_SPECS: Readonly<Record<SetPieceRole, PieceSpec>> = {
-  gatePillar: {"file": "gate-pillar.glb", "scale": 3.3999999999999955, "facingY": 3.141592653589793, "size": [0.5441328165532395, 3.4, 0.5441328165532395]},
   beam: {"file": "beam.glb", "scale": 3.124237223493507, "facingY": 3.141592653589793, "size": [3.124237223493512, 0.5, 0.4999999999999992]},
   hallColumn: {"file": "hall-column.glb", "scale": 2.999999999999996, "facingY": 3.141592653589793, "size": [0.48011719107638784, 3, 0.48011719107638784]},
   hallWall: {"file": "hall-wall.glb", "scale": 2.4, "facingY": 3.141592653589793, "size": [2.4, 2.4, 0.23994872890408095]},
@@ -58,5 +57,8 @@ export const GLOW_START = 0.15
 export const GLOW_END = 0.6
 
 // `journey-building-` is reserved for the box layers (their GPU probes match that prefix).
+// The pure-white tile of the kit's shared palette texture (x 128 to 160 of 512, y 256 to 384 and a little beyond).
+// The gate uses it for the arch, piers, and canopies so they read as white concrete.
+export const GATE_WHITE_UV: readonly [number, number] = [0.28, 0.57]
 export const SCENERY_GROUP_NAME = 'journey-scenery'
 export const NEAR_MESH_PREFIX = 'journey-near-building-'

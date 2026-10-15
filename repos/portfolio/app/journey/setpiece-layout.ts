@@ -5,6 +5,8 @@ import { BUILDING_CLEARANCE, COURTYARD_DEPTH, ROAD_HALF_WIDTH } from './path'
 import { seeded } from './random'
 
 export type SetPieceGroupName = 'gate' | 'hall' | 'market' | 'house'
+// The groups that are placements of models. The gate is a gateLayout instead.
+export type PlacedGroupName = Exclude<SetPieceGroupName, 'gate'>
 
 export interface PiecePlacement {
   role: SetPieceRole
@@ -24,10 +26,16 @@ const STALL_SEED = 7000
 const HALF_TURN = Math.PI / 2
 
 // Target dimensions in each piece's own model axes: [along x (width), y (height), along z (depth)].
-const GATE_PILLAR: readonly [number, number, number] = [0.6, 3.4, 0.6]
-const GATE_ARCH_RISE = 0.9
-const GATE_ARCH_THICKNESS = 0.35
-const GATE_ARCH_SEGMENTS = 16
+// The gate is a tall parabolic arch that springs from the ground, with a pier and a flat canopy on each side.
+// The piers and canopies are plain boxes built in code, because the beam model carries stone detail that stretches badly.
+const GATE_INNER_HALF = ROAD_HALF_WIDTH + 0.6
+const GATE_ARCH_RISE = 5.5
+const GATE_ARCH_THICKNESS = 0.55
+const GATE_ARCH_FOOT_WIDTH = 0.9
+const GATE_ARCH_DEPTH = 1
+const GATE_ARCH_SEGMENTS = 24
+const GATE_PIER: readonly [number, number, number] = [1.4, 2.9, 1.2]
+const GATE_CANOPY: readonly [number, number, number] = [4, 0.25, 2.4]
 const HALL_COLUMN: readonly [number, number, number] = [0.52, 3, 0.52]
 const HALL_BEAM_BASE_Y = 1.95
 const HALL_BEAM_HEIGHT = 0.3
@@ -50,36 +58,59 @@ function place(
   return { role, x, y, z, rotY, sx: target[0] / size[0], sy: target[1] / size[1], sz: target[2] / size[2] }
 }
 
-const GATE_PILLAR_X = ROAD_HALF_WIDTH + 0.4
+const GATE_PIER_X = GATE_INNER_HALF + GATE_PIER[0] / 2
+const GATE_CANOPY_X = GATE_INNER_HALF + GATE_PIER[0] + GATE_CANOPY[0] / 2
+
+// Half extents of the gate in its own frame, for the footprint that keeps background buildings clear of it.
+export const GATE_FOOTPRINT_HALF_X = GATE_INNER_HALF + GATE_PIER[0] + GATE_CANOPY[0]
+export const GATE_FOOTPRINT_HALF_Z = GATE_CANOPY[2] / 2
 
 export interface GateArch {
   span: number
   rise: number
   thickness: number
+  footWidth: number
   depth: number
   segments: number
-  // World y of the underside at the arch ends.
+  // World y of the arch feet.
   baseY: number
 }
 
-// The arch spans the outer pillar edges. Its underside meets the pillar top at the pillar's inner edge and sinks into
-// the pillar beyond that, so no gap shows above the pillar.
-export function gateArch(): GateArch {
-  const half = GATE_PILLAR_X + GATE_PILLAR[0] / 2
-  const inner = GATE_PILLAR_X - GATE_PILLAR[0] / 2
-  const pillarTop = GROUND_Y + GATE_PILLAR[1]
-  return {
-    span: half * 2,
-    rise: GATE_ARCH_RISE,
-    thickness: GATE_ARCH_THICKNESS,
-    depth: GATE_PILLAR[2],
-    segments: GATE_ARCH_SEGMENTS,
-    baseY: pillarTop - GATE_ARCH_RISE * (1 - (inner / half) ** 2),
-  }
+// An axis-aligned box in the gate's own frame. `y` is the bottom face.
+export interface GateBox {
+  x: number
+  y: number
+  z: number
+  width: number
+  height: number
+  depth: number
 }
 
-function gatePlacements(): PiecePlacement[] {
-  return ([-1, 1] as const).map(side => place('gatePillar', side * GATE_PILLAR_X, GROUND_Y, 0, 0, GATE_PILLAR))
+export interface GateLayout {
+  arch: GateArch
+  boxes: readonly GateBox[]
+}
+
+export function gateLayout(): GateLayout {
+  const boxes = ([-1, 1] as const).flatMap((side): GateBox[] => [
+    { x: side * GATE_PIER_X, y: GROUND_Y, z: 0, width: GATE_PIER[0], height: GATE_PIER[1], depth: GATE_PIER[2] },
+    {
+      x: side * GATE_CANOPY_X, y: GROUND_Y + GATE_PIER[1] - GATE_CANOPY[1], z: 0,
+      width: GATE_CANOPY[0], height: GATE_CANOPY[1], depth: GATE_CANOPY[2],
+    },
+  ])
+  return {
+    arch: {
+      span: GATE_INNER_HALF * 2,
+      rise: GATE_ARCH_RISE,
+      thickness: GATE_ARCH_THICKNESS,
+      footWidth: GATE_ARCH_FOOT_WIDTH,
+      depth: GATE_ARCH_DEPTH,
+      segments: GATE_ARCH_SEGMENTS,
+      baseY: GROUND_Y,
+    },
+    boxes,
+  }
 }
 
 function hallPlacements(): PiecePlacement[] {
@@ -108,9 +139,8 @@ function marketPlacements(): PiecePlacement[] {
   })
 }
 
-export function setPieceLayout(): Readonly<Record<SetPieceGroupName, readonly PiecePlacement[]>> {
+export function setPieceLayout(): Readonly<Record<PlacedGroupName, readonly PiecePlacement[]>> {
   return {
-    gate: gatePlacements(),
     hall: hallPlacements(),
     market: marketPlacements(),
     house: [place('house', 0, GROUND_Y, HOUSE_CENTER_Z, Math.PI, HOUSE)],

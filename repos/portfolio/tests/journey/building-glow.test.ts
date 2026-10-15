@@ -12,7 +12,7 @@ function models(): { models: BuildingModels; wall: THREE.MeshStandardMaterial; g
   const part = (material: THREE.Material) => ({ geometry: new THREE.BoxGeometry(1, 1, 1), material })
   const piece = { parts: [part(wall), part(glass)], size: [1, 1, 1] as const }
   return {
-    models: { setPieces: { gatePillar: piece, beam: piece, hallColumn: piece, hallWall: piece, stall: piece, house: piece }, near: [piece] },
+    models: { setPieces: { beam: piece, hallColumn: piece, hallWall: piece, stall: piece, house: piece }, near: [piece] },
     wall, glass,
   }
 }

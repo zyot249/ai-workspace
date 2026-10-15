@@ -59,6 +59,17 @@ export function normalizePiece(root: THREE.Object3D, spec: Pick<PieceSpec, 'scal
   return { parts: baked, size: [size.x, size.y, size.z] }
 }
 
+// Points every vertex at one color of the palette texture, so the geometry draws as one flat color.
+export function setUniformUv(geometry: THREE.BufferGeometry, uv: readonly [number, number]): void {
+  const count = geometry.getAttribute('position').count
+  const values = new Float32Array(count * 2)
+  for (let i = 0; i < count; i++) {
+    values[i * 2] = uv[0]
+    values[i * 2 + 1] = uv[1]
+  }
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(values, 2))
+}
+
 // One geometry per material name. The first material instance seen for a name is the one kept.
 export function mergeByMaterial(parts: readonly BakedPart[]): BakedPart[] {
   const groups = new Map<string, { material: THREE.Material; geometries: THREE.BufferGeometry[] }>()

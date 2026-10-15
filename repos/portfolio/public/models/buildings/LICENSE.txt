@@ -6,7 +6,7 @@ License: Creative Commons Zero (CC0 1.0 Universal)
 https://creativecommons.org/publicdomain/zero/1.0/
 
 Source models within the pack's Models/GLB format directory:
-gate-pillar.glb, hall-column.glb: pillar-stone.glb
+hall-column.glb: pillar-stone.glb
 beam.glb: pillar-stone.glb rotated onto local X
 hall-wall.glb: wall.glb rotated onto local X
 stall.glb: stall-red.glb

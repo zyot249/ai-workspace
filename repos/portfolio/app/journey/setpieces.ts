@@ -1,12 +1,12 @@
 // app/journey/setpieces.ts
 import * as THREE from 'three'
 import { parabolicArchGeometry } from './arch-geometry'
-import { type BakedPart, mergeByMaterial } from './building-geometry'
+import { type BakedPart, mergeByMaterial, setUniformUv } from './building-geometry'
 import type { BuildingModels } from './building-models'
 import type { SceneryPart } from './building-scenery'
-import { HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME } from './building-specs'
+import { GATE_WHITE_UV, HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME } from './building-specs'
 import { headingFor, pathSegmentAt, PLACES } from './path'
-import { gateArch, HOUSE_FRONT_Z, type PiecePlacement, type SetPieceGroupName, setPieceLayout } from './setpiece-layout'
+import { gateLayout, HOUSE_FRONT_Z, type PiecePlacement, type PlacedGroupName, type SetPieceGroupName, setPieceLayout } from './setpiece-layout'
 
 // Where each set-piece group stands. The groups are authored facing world -Z, as the primitives are.
 const GROUP_PLACES = {
@@ -16,7 +16,7 @@ const GROUP_PLACES = {
   house: { place: PLACES.courtyard, segment: 2 },
 } as const satisfies Record<SetPieceGroupName, { place: { x: number; z: number }; segment: number }>
 
-const GROUP_ORDER: readonly SetPieceGroupName[] = ['gate', 'hall', 'market', 'house']
+const PLACED_GROUP_ORDER: readonly PlacedGroupName[] = ['hall', 'market', 'house']
 // The window planes sit just in front of the house wall so they do not z-fight with it.
 const WINDOW_OFFSET_Z = 0.01
 const GROUND_Y = -1
@@ -49,35 +49,12 @@ const scale = new THREE.Vector3()
 const rotation = new THREE.Quaternion()
 const axisY = new THREE.Vector3(0, 1, 0)
 
-// The gate arch takes the beam model's material and its palette color (the uv of the beam's first vertex), so it
-// merges into the gate mesh and adds no draw call.
-function bakeGateArch(models: BuildingModels): BakedPart {
-  const [beamPart] = models.setPieces.beam.parts
-  const uv = beamPart?.geometry.getAttribute('uv')
-  if (!beamPart || !uv) throw new Error('The beam model has no uv attribute to color the gate arch')
-  const { baseY, ...spec } = gateArch()
-  const geometry = parabolicArchGeometry({ ...spec, uv: [uv.getX(0), uv.getY(0)] })
-  geometry.translate(0, baseY, 0)
-  return { geometry, material: beamPart.material }
-}
-
-// Bakes every placement of one group into one geometry per material, so a group costs one draw call per material.
-function bakeGroup(name: SetPieceGroupName, placements: readonly PiecePlacement[], models: BuildingModels): THREE.Group {
-  const byMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>()
-  for (const placement of placements) {
-    matrix.compose(position.set(placement.x, placement.y, placement.z), rotation.setFromAxisAngle(axisY, placement.rotY),
-      scale.set(placement.sx, placement.sy, placement.sz))
-    for (const part of models.setPieces[placement.role].parts) {
-      const list = byMaterial.get(part.material) ?? []
-      list.push(part.geometry.clone().applyMatrix4(matrix))
-      byMaterial.set(part.material, list)
-    }
-  }
+// Merges parts into one mesh per material, names the group, and places it on the path. Temporary geometry is
+// disposed whether or not the merge succeeds.
+function mergeGroup(name: SetPieceGroupName, temporary: readonly BakedPart[]): THREE.Group {
   const group = new THREE.Group()
   group.name = `${SCENERY_GROUP_NAME}-${name}`
-  const temporary: BakedPart[] = [...byMaterial].flatMap(([material, geometries]) => geometries.map(geometry => ({ geometry, material })))
   try {
-    if (name === 'gate') temporary.push(bakeGateArch(models))
     for (const { geometry, material } of mergeByMaterial(temporary)) {
       const mesh = new THREE.Mesh(geometry, material)
       mesh.name = `${SCENERY_GROUP_NAME}-${name}-mesh`
@@ -89,6 +66,45 @@ function bakeGroup(name: SetPieceGroupName, placements: readonly PiecePlacement[
   const { place, segment } = GROUP_PLACES[name]
   const direction = pathSegmentAt(segment)
   return placeOnPath(group, place, direction.dirX, direction.dirZ)
+}
+
+// The gate is white concrete built in code: the arch, a pier and a canopy on each side. Every part takes the beam
+// model's material and the white palette tile, so the gate is one mesh and one draw call.
+function bakeGate(models: BuildingModels): THREE.Group {
+  const [beamPart] = models.setPieces.beam.parts
+  if (!beamPart) throw new Error('The beam model has no part to take the gate material from')
+  const { arch: { baseY, ...archSpec }, boxes } = gateLayout()
+  const parts: BakedPart[] = []
+  try {
+    for (const box of boxes) {
+      const geometry = new THREE.BoxGeometry(box.width, box.height, box.depth)
+      geometry.translate(box.x, box.y + box.height / 2, box.z)
+      setUniformUv(geometry, GATE_WHITE_UV)
+      parts.push({ geometry, material: beamPart.material })
+    }
+    const arch = parabolicArchGeometry({ ...archSpec, uv: GATE_WHITE_UV })
+    arch.translate(0, baseY, 0)
+    parts.push({ geometry: arch, material: beamPart.material })
+  } catch (error) {
+    for (const part of parts) part.geometry.dispose()
+    throw error
+  }
+  return mergeGroup('gate', parts)
+}
+
+// Bakes every placement of one group into one geometry per material, so a group costs one draw call per material.
+function bakeGroup(name: PlacedGroupName, placements: readonly PiecePlacement[], models: BuildingModels): THREE.Group {
+  const byMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>()
+  for (const placement of placements) {
+    matrix.compose(position.set(placement.x, placement.y, placement.z), rotation.setFromAxisAngle(axisY, placement.rotY),
+      scale.set(placement.sx, placement.sy, placement.sz))
+    for (const part of models.setPieces[placement.role].parts) {
+      const list = byMaterial.get(part.material) ?? []
+      list.push(part.geometry.clone().applyMatrix4(matrix))
+      byMaterial.set(part.material, list)
+    }
+  }
+  return mergeGroup(name, [...byMaterial].flatMap(([material, geometries]) => geometries.map(geometry => ({ geometry, material }))))
 }
 
 export function createSetPieces(fallbacks: SetPieceFallbacks): SetPieces {
@@ -119,7 +135,8 @@ export function createSetPieces(fallbacks: SetPieceFallbacks): SetPieces {
       staged = true
       const layout = setPieceLayout()
       try {
-        for (const name of GROUP_ORDER) group.add(bakeGroup(name, layout[name], models))
+        group.add(bakeGate(models))
+        for (const name of PLACED_GROUP_ORDER) group.add(bakeGroup(name, layout[name], models))
       } catch (error) {
         release()
         throw error

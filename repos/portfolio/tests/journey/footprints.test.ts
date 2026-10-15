@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CORNER_BLOCKS, clearsCornerBlocks, clearsFootprints, FOOTPRINTS, type Footprint } from '../../app/journey/footprints'
 import { BUILDING_CLEARANCE } from '../../app/journey/path'
+import { GATE_FOOTPRINT_HALF_X, GATE_FOOTPRINT_HALF_Z } from '../../app/journey/setpiece-layout'
 
 // Inverse of the rotation used in clearsFootprints: footprint-local (lx, lz) to world.
 function worldPoint(fp: Footprint, lx: number, lz: number): { x: number, z: number } {
@@ -27,6 +28,12 @@ describe('clearsFootprints', () => {
       }
     },
   )
+})
+
+it('sizes the entrance footprint to the gate, canopies included', () => {
+  const entrance = FOOTPRINTS[0]!
+  expect(entrance.halfX).toBe(GATE_FOOTPRINT_HALF_X)
+  expect(entrance.halfZ).toBe(GATE_FOOTPRINT_HALF_Z)
 })
 
 it('keeps the market stalls inside the market footprint', () => {

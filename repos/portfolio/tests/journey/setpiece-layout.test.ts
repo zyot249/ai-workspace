@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { SET_PIECE_SPECS, type SetPieceRole } from '../../app/journey/building-specs'
 import { HALL_LENGTH, HALL_PILLAR_X, HALL_WALL_X, hallPillarZs } from '../../app/journey/hall'
 import { COURTYARD_DEPTH, ROAD_HALF_WIDTH, SIDEWALK_OUTER } from '../../app/journey/path'
-import { gateArch, HOUSE_CENTER_Z, HOUSE_FRONT_Z, type PiecePlacement, setPieceLayout } from '../../app/journey/setpiece-layout'
+import { GATE_FOOTPRINT_HALF_X, GATE_FOOTPRINT_HALF_Z, type GateBox, gateLayout, HOUSE_CENTER_Z, HOUSE_FRONT_Z, type PiecePlacement, setPieceLayout } from '../../app/journey/setpiece-layout'
 
 // A placed piece's final extent along its model axes.
 function extent(p: PiecePlacement, role: SetPieceRole): [number, number, number] {
@@ -18,28 +18,55 @@ describe('setPieceLayout', () => {
     expect(setPieceLayout()).toEqual(layout)
   })
 
-  it('puts a pillar at each side of the road, 0.4 beyond its edge, and no flat beam', () => {
-    const pillars = layout.gate.filter(p => p.role === 'gatePillar')
-    expect(pillars.map(p => p.x).sort((a, b) => a - b)).toEqual([-(ROAD_HALF_WIDTH + 0.4), ROAD_HALF_WIDTH + 0.4])
-    for (const pillar of pillars) expect(extent(pillar, 'gatePillar')[1]).toBeCloseTo(3.4, 5)
-    expect(layout.gate.some(p => p.role === 'beam')).toBe(false)
+  const gate = gateLayout()
+
+  // Per side the gate has two boxes: the pier, nearest the road, and the canopy beyond it.
+  function gateSide(side: number): { pier: GateBox; canopy: GateBox } {
+    const boxes = gate.boxes.filter(box => Math.sign(box.x) === side).sort((a, b) => Math.abs(a.x) - Math.abs(b.x))
+    return { pier: boxes[0]!, canopy: boxes[1]! }
+  }
+
+  it('lays out the gate deterministically', () => {
+    expect(gateLayout()).toEqual(gate)
   })
 
-  it('spans a parabolic arch between the outer pillar edges with no gap above the pillar tops', () => {
-    const arch = gateArch()
-    const pillars = layout.gate.filter(p => p.role === 'gatePillar')
-    const pillarWidth = extent(pillars[0]!, 'gatePillar')[0]
-    const pillarX = Math.max(...pillars.map(p => p.x))
-    const pillarTop = Math.max(...pillars.map(p => p.y + extent(p, 'gatePillar')[1]))
-    const half = arch.span / 2
-    const underside = (x: number) => arch.baseY + arch.rise * (1 - (x / half) ** 2)
-    expect(half).toBeCloseTo(pillarX + pillarWidth / 2, 5)
-    // The underside meets the pillar top at the pillar's inner edge and sinks into the pillar beyond it.
-    expect(underside(pillarX - pillarWidth / 2)).toBeCloseTo(pillarTop, 5)
-    expect(underside(half)).toBeLessThan(pillarTop)
-    expect(arch.rise).toBeGreaterThan(0)
+  it('stands a pier outside each road edge, with a canopy slab reaching outward from its top', () => {
+    expect(gate.boxes).toHaveLength(4)
+    for (const side of [-1, 1]) {
+      const { pier, canopy } = gateSide(side)
+      const pierInner = Math.abs(pier.x) - pier.width / 2
+      const pierOuter = Math.abs(pier.x) + pier.width / 2
+      const canopyInner = Math.abs(canopy.x) - canopy.width / 2
+      expect(pierInner).toBeGreaterThanOrEqual(ROAD_HALF_WIDTH)
+      expect(canopyInner).toBeCloseTo(pierOuter, 5)
+      // The canopy top is flush with the pier top, and both stand on the ground.
+      expect(canopy.y + canopy.height).toBeCloseTo(pier.y + pier.height, 5)
+      expect(pier.y).toBe(gate.arch.baseY)
+      expect(pier.height).toBeGreaterThan(canopy.height)
+    }
+  })
+
+  it('springs a tall parabolic arch from the ground inside the piers, above the canopies', () => {
+    const { arch } = gate
+    const { pier } = gateSide(1)
+    expect(arch.span / 2).toBeCloseTo(pier.x - pier.width / 2, 5)
+    // Both feet stand inside the pier, which is deeper than the arch so their faces do not coincide.
+    expect(arch.footWidth).toBeLessThanOrEqual(pier.width)
+    expect(arch.depth).toBeLessThan(pier.depth)
+    expect(arch.rise).toBeGreaterThan(pier.height)
+    expect(arch.thickness).toBeGreaterThan(0)
     expect(arch.segments).toBeGreaterThanOrEqual(2)
-    expect(arch.depth).toBeCloseTo(extent(pillars[0]!, 'gatePillar')[2], 5)
+  })
+
+  it('keeps the road clear: the opening is at least as wide as the road', () => {
+    expect(gate.arch.span / 2).toBeGreaterThanOrEqual(ROAD_HALF_WIDTH)
+  })
+
+  it('reserves a footprint that covers the whole gate, canopies included', () => {
+    for (const { canopy } of [gateSide(-1), gateSide(1)]) {
+      expect(Math.abs(canopy.x) + canopy.width / 2).toBeLessThanOrEqual(GATE_FOOTPRINT_HALF_X)
+      expect(canopy.depth / 2).toBeLessThanOrEqual(GATE_FOOTPRINT_HALF_Z)
+    }
   })
 
   it('stands hall columns on the hall pillar positions', () => {
@@ -92,7 +119,7 @@ describe('setPieceLayout', () => {
   })
 
   it('stands every piece on the ground at y = -1', () => {
-    for (const p of [...layout.gate, ...layout.hall, ...layout.market, ...layout.house]) {
+    for (const p of [...layout.hall, ...layout.market, ...layout.house]) {
       if (p.role === 'beam') continue
       expect(p.y).toBe(-1)
     }

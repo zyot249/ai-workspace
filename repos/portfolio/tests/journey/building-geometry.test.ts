@@ -1,7 +1,7 @@
 // tests/journey/building-geometry.test.ts
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import { mergeByMaterial, normalizePiece } from '../../app/journey/building-geometry'
+import { mergeByMaterial, normalizePiece, setUniformUv } from '../../app/journey/building-geometry'
 
 function box(width: number, height: number, depth: number, material: THREE.Material, at: [number, number, number]): THREE.Mesh {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material)
@@ -125,4 +125,26 @@ it('disposes earlier merged geometry if a later material group is incompatible',
     expect(() => mergeByMaterial([{ geometry: a, material: good }, { geometry: a, material: bad }, { geometry: b, material: bad }])).toThrow('incompatible attributes')
     expect(dispose).toHaveBeenCalledTimes(1)
   } finally { dispose.mockRestore() }
+})
+
+describe('setUniformUv', () => {
+  it('points every vertex at one palette color and keeps the other attributes', () => {
+    const geometry = new THREE.BoxGeometry(1, 2, 3)
+    const positions = Array.from(geometry.getAttribute('position').array)
+    setUniformUv(geometry, [0.25, 0.75])
+    const uv = geometry.getAttribute('uv')
+    expect(uv.count).toBe(geometry.getAttribute('position').count)
+    for (let i = 0; i < uv.count; i++) {
+      expect(uv.getX(i)).toBeCloseTo(0.25, 6)
+      expect(uv.getY(i)).toBeCloseTo(0.75, 6)
+    }
+    expect(Array.from(geometry.getAttribute('position').array)).toEqual(positions)
+  })
+
+  it('adds a uv attribute to a geometry that has none', () => {
+    const geometry = new THREE.BoxGeometry(1, 1, 1)
+    geometry.deleteAttribute('uv')
+    setUniformUv(geometry, [0.5, 0.5])
+    expect(geometry.getAttribute('uv').itemSize).toBe(2)
+  })
 })
