@@ -28,7 +28,7 @@ export const SET_PIECE_SPECS: Readonly<Record<SetPieceRole, PieceSpec>> = {
   beam: {"file": "beam.glb", "scale": 3.124237223493507, "facingY": 3.141592653589793, "size": [3.124237223493512, 0.5, 0.4999999999999992]},
   hallColumn: {"file": "hall-column.glb", "scale": 2.999999999999996, "facingY": 3.141592653589793, "size": [0.48011719107638784, 3, 0.48011719107638784]},
   hallWall: {"file": "hall-wall.glb", "scale": 2.4, "facingY": 3.141592653589793, "size": [2.4, 2.4, 0.23994872890408095]},
-  stall: {"file": "stall.glb", "scale": 1.3743117278513388, "facingY": 3.141592653589793, "size": [1.3743919186986908, 1.7, 1.3743919186986908]},
+  stall: {"file": "stall.glb", "scale": 1.3743117278513388, "facingY": Math.PI / 2, "size": [1.3743919186986908, 1.7, 1.3743919186986908]},
   house: {"file": "house.glb", "scale": 1.9415501029646036, "facingY": 3.141592653589793, "size": [5.824650308893812, 3.05, 3.8833372187900705]},
 }
 

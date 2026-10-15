@@ -1,6 +1,6 @@
 // tests/journey/building-geometry.test.ts
 import * as THREE from 'three'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mergeByMaterial, normalizePiece } from '../../app/journey/building-geometry'
 
 function box(width: number, height: number, depth: number, material: THREE.Material, at: [number, number, number]): THREE.Mesh {
@@ -113,4 +113,16 @@ it('bakes quantized normalized attributes without clipping or rounding transform
   const piece = normalizePiece(root, { scale: 2, facingY: 0 })
   expect(piece.size).toEqual([8, 6, 8])
   expect(piece.parts[0]!.geometry.getAttribute('position').array).toBeInstanceOf(Float32Array)
+})
+
+it('disposes earlier merged geometry if a later material group is incompatible', () => {
+  const good = new THREE.MeshStandardMaterial({ name: 'good' })
+  const bad = new THREE.MeshStandardMaterial({ name: 'bad' })
+  const a = new THREE.BoxGeometry()
+  const b = new THREE.BoxGeometry(); b.deleteAttribute('normal')
+  const dispose = vi.spyOn(THREE.BufferGeometry.prototype, 'dispose')
+  try {
+    expect(() => mergeByMaterial([{ geometry: a, material: good }, { geometry: a, material: bad }, { geometry: b, material: bad }])).toThrow('incompatible attributes')
+    expect(dispose).toHaveBeenCalledTimes(1)
+  } finally { dispose.mockRestore() }
 })

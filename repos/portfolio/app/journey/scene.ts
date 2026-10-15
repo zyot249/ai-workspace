@@ -1,3 +1,4 @@
+import { createNearBuildings } from './near-buildings'
 import { attachBuildingModels, type BuildingModels, loadBuildingModels } from './building-models'
 import { type BuildingScenery, createBuildingScenery } from './building-scenery'
 import { SCENERY_GROUP_NAME } from './building-specs'
@@ -441,7 +442,10 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   sceneryGroup.name = SCENERY_GROUP_NAME
   sceneryGroup.add(setPieces.group)
   scene.add(sceneryGroup)
-  const buildingScenery = createBuildingScenery([setPieces])
+  const nearLayer = layers[0]
+  const nearBuildings = nearLayer ? createNearBuildings(nearLayer, layerMeshes(nearLayer)) : null
+  if (nearBuildings) sceneryGroup.add(nearBuildings.group)
+  const buildingScenery = createBuildingScenery(nearBuildings ? [setPieces, nearBuildings] : [setPieces])
   scenery = buildingScenery
   async function warmSceneryShaders(): Promise<void> {
     await preservingState(renderer, () => {
@@ -590,6 +594,7 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
     layers.forEach((layer, i) => {
       if (applyBuildingState(layer, state.buildingHeight, state.buildingDensity, lastTime, tier === 'reduced')) {
         writeLayerShadows(shadows, shadowOffsets[i] ?? 0, layer)
+        if (i === 0) nearBuildings?.write()
       }
     })
     shadows.commit()

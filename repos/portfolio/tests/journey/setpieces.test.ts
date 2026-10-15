@@ -1,6 +1,6 @@
 // tests/journey/setpieces.test.ts
 import * as THREE from 'three'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME, SET_PIECE_ROLES, SET_PIECE_SPECS } from '../../app/journey/building-specs'
 import type { BuildingModels } from '../../app/journey/building-models'
 import { createSetPieces, placeOnPath } from '../../app/journey/setpieces'
@@ -113,4 +113,18 @@ it('restores primitives and window positions when a shown swap is discarded', ()
   pieces.release()
   expect([fb.gate, fb.hall, fb.market, fb.house].every(object => object.visible)).toBe(true)
   expect(fb.houseWindows[0]!.position.toArray()).toEqual([0.9, 0, 2])
+})
+
+it('releases all temporary and merged geometry when one material group fails', () => {
+  const models = fakeModels(['good', 'bad'])
+  models.setPieces.beam.parts[1]!.geometry.deleteAttribute('normal')
+  const clone = vi.spyOn(THREE.BufferGeometry.prototype, 'clone')
+  const dispose = vi.spyOn(THREE.BufferGeometry.prototype, 'dispose')
+  try {
+    const pieces = createSetPieces(fallbacks())
+    expect(() => pieces.stage(models)).toThrow('incompatible attributes')
+    expect(pieces.group.children).toHaveLength(0)
+    // Every placement clone, plus the first successful material merge.
+    expect(dispose.mock.calls.length).toBe(clone.mock.calls.length + 1)
+  } finally { clone.mockRestore(); dispose.mockRestore() }
 })

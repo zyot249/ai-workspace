@@ -1,6 +1,6 @@
 // app/journey/setpieces.ts
 import * as THREE from 'three'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { mergeByMaterial } from './building-geometry'
 import type { BuildingModels } from './building-models'
 import type { SceneryPart } from './building-scenery'
 import { HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME } from './building-specs'
@@ -62,13 +62,15 @@ function bakeGroup(name: SetPieceGroupName, placements: readonly PiecePlacement[
   }
   const group = new THREE.Group()
   group.name = `${SCENERY_GROUP_NAME}-${name}`
-  for (const [material, geometries] of byMaterial) {
-    const merged = mergeGeometries(geometries, false)
-    for (const geometry of geometries) geometry.dispose()
-    if (!merged) throw new Error(`The ${name} set-piece parts have incompatible attributes`)
-    const mesh = new THREE.Mesh(merged, material)
-    mesh.name = `${SCENERY_GROUP_NAME}-${name}-mesh`
-    group.add(mesh)
+  const temporary = [...byMaterial].flatMap(([material, geometries]) => geometries.map(geometry => ({ geometry, material })))
+  try {
+    for (const { geometry, material } of mergeByMaterial(temporary)) {
+      const mesh = new THREE.Mesh(geometry, material)
+      mesh.name = `${SCENERY_GROUP_NAME}-${name}-mesh`
+      group.add(mesh)
+    }
+  } finally {
+    for (const part of temporary) part.geometry.dispose()
   }
   const { place, segment } = GROUP_PLACES[name]
   const direction = pathSegmentAt(segment)

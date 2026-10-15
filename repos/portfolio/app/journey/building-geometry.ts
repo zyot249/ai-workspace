@@ -67,9 +67,16 @@ export function mergeByMaterial(parts: readonly BakedPart[]): BakedPart[] {
     group.geometries.push(part.geometry)
     groups.set(part.material.name, group)
   }
-  return [...groups.values()].map(({ material, geometries }) => {
-    const geometry = mergeGeometries(geometries, false)
-    if (!geometry) throw new Error('Building model parts have incompatible attributes')
-    return { geometry, material }
-  })
+  const merged: BakedPart[] = []
+  try {
+    for (const { material, geometries } of groups.values()) {
+      const geometry = mergeGeometries(geometries, false)
+      if (!geometry) throw new Error('Building model parts have incompatible attributes')
+      merged.push({ geometry, material })
+    }
+    return merged
+  } catch (error) {
+    for (const part of merged) part.geometry.dispose()
+    throw error
+  }
 }
