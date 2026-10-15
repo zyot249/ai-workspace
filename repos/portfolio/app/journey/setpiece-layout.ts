@@ -25,9 +25,9 @@ const HALF_TURN = Math.PI / 2
 
 // Target dimensions in each piece's own model axes: [along x (width), y (height), along z (depth)].
 const GATE_PILLAR: readonly [number, number, number] = [0.6, 3.4, 0.6]
-const GATE_BEAM_BASE_Y = 1.9
-const GATE_BEAM_HEIGHT = 0.5
-const GATE_BEAM_DEPTH = 0.6
+const GATE_ARCH_RISE = 0.9
+const GATE_ARCH_THICKNESS = 0.35
+const GATE_ARCH_SEGMENTS = 16
 const HALL_COLUMN: readonly [number, number, number] = [0.52, 3, 0.52]
 const HALL_BEAM_BASE_Y = 1.95
 const HALL_BEAM_HEIGHT = 0.3
@@ -50,11 +50,36 @@ function place(
   return { role, x, y, z, rotY, sx: target[0] / size[0], sy: target[1] / size[1], sz: target[2] / size[2] }
 }
 
+const GATE_PILLAR_X = ROAD_HALF_WIDTH + 0.4
+
+export interface GateArch {
+  span: number
+  rise: number
+  thickness: number
+  depth: number
+  segments: number
+  // World y of the underside at the arch ends.
+  baseY: number
+}
+
+// The arch spans the outer pillar edges. Its underside meets the pillar top at the pillar's inner edge and sinks into
+// the pillar beyond that, so no gap shows above the pillar.
+export function gateArch(): GateArch {
+  const half = GATE_PILLAR_X + GATE_PILLAR[0] / 2
+  const inner = GATE_PILLAR_X - GATE_PILLAR[0] / 2
+  const pillarTop = GROUND_Y + GATE_PILLAR[1]
+  return {
+    span: half * 2,
+    rise: GATE_ARCH_RISE,
+    thickness: GATE_ARCH_THICKNESS,
+    depth: GATE_PILLAR[2],
+    segments: GATE_ARCH_SEGMENTS,
+    baseY: pillarTop - GATE_ARCH_RISE * (1 - (inner / half) ** 2),
+  }
+}
+
 function gatePlacements(): PiecePlacement[] {
-  const pillarX = ROAD_HALF_WIDTH + 0.4
-  const placed = ([-1, 1] as const).map(side => place('gatePillar', side * pillarX, GROUND_Y, 0, 0, GATE_PILLAR))
-  placed.push(place('beam', 0, GATE_BEAM_BASE_Y, 0, 0, [pillarX * 2 + 0.6, GATE_BEAM_HEIGHT, GATE_BEAM_DEPTH]))
-  return placed
+  return ([-1, 1] as const).map(side => place('gatePillar', side * GATE_PILLAR_X, GROUND_Y, 0, 0, GATE_PILLAR))
 }
 
 function hallPlacements(): PiecePlacement[] {

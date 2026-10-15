@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME, SET_PIECE_ROLES, SET_PIECE_SPECS } from '../../app/journey/building-specs'
 import type { BuildingModels } from '../../app/journey/building-models'
 import { createSetPieces, placeOnPath } from '../../app/journey/setpieces'
-import { HOUSE_FRONT_Z, setPieceLayout } from '../../app/journey/setpiece-layout'
+import { parabolicArchGeometry } from '../../app/journey/arch-geometry'
+import { gateArch, HOUSE_FRONT_Z, setPieceLayout } from '../../app/journey/setpiece-layout'
 
 function fakeModels(materialNames: readonly string[] = ['palette']): BuildingModels {
   const materials = materialNames.map(name => new THREE.MeshStandardMaterial({ name }))
@@ -69,6 +70,31 @@ describe('createSetPieces', () => {
     expect(mesh.geometry.getAttribute('position').count).toBe(layout.market.length * 24)
   })
 
+  it('adds the gate arch to the gate mesh, reaching above the pillars', () => {
+    const setPieces = createSetPieces(fallbacks())
+    setPieces.stage(fakeModels())
+    const gateGroup = setPieces.group.children.find(child => child.name.endsWith('gate'))!
+    const meshes = gateGroup.children.filter(object => (object as THREE.Mesh).isMesh) as THREE.Mesh[]
+    expect(meshes).toHaveLength(1)
+    const { segments, ...spec } = gateArch()
+    const archVertices = parabolicArchGeometry({ ...spec, segments, uv: [0, 0] }).getAttribute('position').count
+    const pillarCount = setPieceLayout().gate.length
+    expect(meshes[0]!.geometry.getAttribute('position').count).toBe(pillarCount * 24 + archVertices)
+    const box = new THREE.Box3().setFromObject(gateGroup)
+    expect(box.max.y).toBeCloseTo(spec.baseY + spec.rise + spec.thickness, 4)
+    expect(box.max.x - box.min.x).toBeCloseTo(spec.span, 4)
+  })
+
+  it('fails the stage and shows nothing when the beam model has no uv for the arch', () => {
+    const fb = fallbacks()
+    const setPieces = createSetPieces(fb)
+    const models = fakeModels()
+    models.setPieces.beam.parts[0]!.geometry.deleteAttribute('uv')
+    expect(() => setPieces.stage(models)).toThrow('uv')
+    expect(setPieces.group.children).toHaveLength(0)
+    expect(fb.gate.visible).toBe(true)
+  })
+
   it('moves the courtyard windows onto the house front', () => {
     const fb = fallbacks()
     const setPieces = createSetPieces(fb)
@@ -124,7 +150,14 @@ it('releases all temporary and merged geometry when one material group fails', (
     const pieces = createSetPieces(fallbacks())
     expect(() => pieces.stage(models)).toThrow('incompatible attributes')
     expect(pieces.group.children).toHaveLength(0)
-    // Every placement clone, plus the first successful material merge.
-    expect(dispose.mock.calls.length).toBe(clone.mock.calls.length + 1)
+    // Every placement clone was disposed.
+    const disposed = new Set(dispose.mock.contexts)
+    for (const result of clone.mock.results) expect(disposed.has(result.value)).toBe(true)
+    // Plus the gate arch, the gate's two merged meshes (released with the failed stage), and the hall's first
+    // successful material merge.
+    const archCount = 1
+    const gateMergedMeshes = 2
+    const hallFirstMerge = 1
+    expect(dispose.mock.calls.length).toBe(clone.mock.calls.length + archCount + gateMergedMeshes + hallFirstMerge)
   } finally { clone.mockRestore(); dispose.mockRestore() }
 })

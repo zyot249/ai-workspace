@@ -1,11 +1,12 @@
 // app/journey/setpieces.ts
 import * as THREE from 'three'
-import { mergeByMaterial } from './building-geometry'
+import { parabolicArchGeometry } from './arch-geometry'
+import { type BakedPart, mergeByMaterial } from './building-geometry'
 import type { BuildingModels } from './building-models'
 import type { SceneryPart } from './building-scenery'
 import { HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME } from './building-specs'
 import { headingFor, pathSegmentAt, PLACES } from './path'
-import { HOUSE_FRONT_Z, type PiecePlacement, type SetPieceGroupName, setPieceLayout } from './setpiece-layout'
+import { gateArch, HOUSE_FRONT_Z, type PiecePlacement, type SetPieceGroupName, setPieceLayout } from './setpiece-layout'
 
 // Where each set-piece group stands. The groups are authored facing world -Z, as the primitives are.
 const GROUP_PLACES = {
@@ -48,6 +49,18 @@ const scale = new THREE.Vector3()
 const rotation = new THREE.Quaternion()
 const axisY = new THREE.Vector3(0, 1, 0)
 
+// The gate arch takes the beam model's material and its palette color (the uv of the beam's first vertex), so it
+// merges into the gate mesh and adds no draw call.
+function bakeGateArch(models: BuildingModels): BakedPart {
+  const [beamPart] = models.setPieces.beam.parts
+  const uv = beamPart?.geometry.getAttribute('uv')
+  if (!beamPart || !uv) throw new Error('The beam model has no uv attribute to color the gate arch')
+  const { baseY, ...spec } = gateArch()
+  const geometry = parabolicArchGeometry({ ...spec, uv: [uv.getX(0), uv.getY(0)] })
+  geometry.translate(0, baseY, 0)
+  return { geometry, material: beamPart.material }
+}
+
 // Bakes every placement of one group into one geometry per material, so a group costs one draw call per material.
 function bakeGroup(name: SetPieceGroupName, placements: readonly PiecePlacement[], models: BuildingModels): THREE.Group {
   const byMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>()
@@ -62,8 +75,9 @@ function bakeGroup(name: SetPieceGroupName, placements: readonly PiecePlacement[
   }
   const group = new THREE.Group()
   group.name = `${SCENERY_GROUP_NAME}-${name}`
-  const temporary = [...byMaterial].flatMap(([material, geometries]) => geometries.map(geometry => ({ geometry, material })))
+  const temporary: BakedPart[] = [...byMaterial].flatMap(([material, geometries]) => geometries.map(geometry => ({ geometry, material })))
   try {
+    if (name === 'gate') temporary.push(bakeGateArch(models))
     for (const { geometry, material } of mergeByMaterial(temporary)) {
       const mesh = new THREE.Mesh(geometry, material)
       mesh.name = `${SCENERY_GROUP_NAME}-${name}-mesh`
