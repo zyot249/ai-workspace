@@ -1,7 +1,7 @@
 # Journey buildings: GLB set-pieces and near skyline
 
 Date: 2026-10-15
-Status: Draft, awaiting review
+Status: Implemented, pending manual checks
 Builds on: [journey vehicles](2026-10-11-journey-vehicles-design.md), [journey people](2026-10-12-journey-people-design.md), [city-03 building shapes](2026-10-09-city-03-building-shapes-design.md)
 
 ## Problem
@@ -55,10 +55,10 @@ Success criteria:
 ### Near-layer skyline
 
 - The near layer (24 buildings on `full`, 14 on `lite`) becomes instanced GLB variants. Mid and far layers are unchanged.
-- Placement keeps the current rules (`placeBuilding`, `clearsFootprints`, `clearsPath`, corner blocks). Width and depth come from each variant's bounds, so clearance still holds.
+- Placement keeps the current rules (`placeBuilding`, `clearsFootprints`, `clearsPath`, corner blocks). Each GLB is scaled uniformly to fit inside the building's already-placed width and depth rectangle. Placement is unchanged, so clearance and shadows hold.
 - Height: only the Y axis scales, clamped to a small range around 1 so facades do not stretch. The scroll `buildingHeight` and density still drive the Y scale and visibility.
-- Contact shadows and the wet-road reflection read the same per-instance matrices. This needs a small adapter and is the riskiest part.
-- Night windows: if a model puts its windows in a separate material, that material's emissive follows `windowLitRatio`, as the courtyard windows do. Otherwise a small shader patch. The plan's inspection task decides.
+- Contact shadows and the wet-road reflection read the same per-instance matrices. Instances keep the existing `Building` records, so contact shadows need no adapter.
+- Night windows: if a model puts its windows in a separate material, that material's emissive follows `windowLitRatio`, as the courtyard windows do. Otherwise every kit material gets a faint uniform glow. There is no shader patch.
 - The near box mesh stays until the models are ready, then hides.
 
 ### Loading and failure
@@ -73,7 +73,7 @@ Success criteria:
 
 ### Models
 
-The user chose a classic European town style. Candidate sources, all to be verified:
+The user chose a classic European town style. The shipped set is Kenney's Fantasy Town Kit 2.0 (CC0). `public/models/buildings/LICENSE.txt` records the source models and the modifications. The candidate sources below were evaluated before that choice:
 
 - Kenney kits (City Kit, Fantasy Town Kit, Castle Kit): CC0, believed to ship GLB. Not verified.
 - Quaternius Medieval Village MegaKit: CC0. Format not verified. Some Quaternius packs ship only FBX, OBJ, and Blend.
