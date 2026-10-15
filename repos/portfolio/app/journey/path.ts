@@ -29,7 +29,7 @@ export const ROAD_HALF_WIDTH = 3
 // square, home courtyard. Each sits mid-leg, not on a turn, so its own
 // geometry (and the road beside it) has room clear of the corner.
 export const PLACES = {
-  entrance: { x: 0, z: 2 },
+  entrance: { x: 0, z: 0 },
   hall: { x: 0, z: -12 },
   market: { x: -13, z: -26 },
   courtyard: { x: -26, z: -46 },

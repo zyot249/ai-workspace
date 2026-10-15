@@ -22,6 +22,41 @@ function requirePositive(name: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`Arch ${name} must be a positive number, got ${value}`)
 }
 
+export interface ArchPoint {
+  x: number
+  y: number
+}
+
+export interface ArchStation {
+  // The point on the underside and the point on the top at the same position `u` along the arch.
+  inner: ArchPoint
+  outer: ArchPoint
+  // Unit direction of the middle of the band at `u`, pointing toward +x.
+  tangent: ArchPoint
+}
+
+// The pair of points the geometry builds at position `u` (0 at the left foot, 1 at the right foot), and the
+// direction of the band there. Detail that sits on the arch uses this so it follows the same curves.
+export function archStation(spec: Pick<ArchSpec, 'span' | 'rise' | 'thickness' | 'footWidth'>, u: number): ArchStation {
+  const innerHalf = spec.span / 2
+  const outerHalf = innerHalf + spec.footWidth
+  const outerHeight = spec.rise + spec.thickness
+  const xInner = -innerHalf + spec.span * u
+  const xOuter = -outerHalf + 2 * outerHalf * u
+  const dxInner = spec.span
+  const dxOuter = 2 * outerHalf
+  const dyInner = ((-2 * spec.rise * xInner) / (innerHalf * innerHalf)) * dxInner
+  const dyOuter = ((-2 * outerHeight * xOuter) / (outerHalf * outerHalf)) * dxOuter
+  const dx = (dxInner + dxOuter) / 2
+  const dy = (dyInner + dyOuter) / 2
+  const length = Math.hypot(dx, dy)
+  return {
+    inner: { x: xInner, y: spec.rise * (1 - (xInner / innerHalf) ** 2) },
+    outer: { x: xOuter, y: outerHeight * (1 - (xOuter / outerHalf) ** 2) },
+    tangent: { x: dx / length, y: dy / length },
+  }
+}
+
 // A band between two nested parabolas that both end on y = 0:
 //   underside  y = rise * (1 - (x / innerHalf)^2)
 //   top        y = (rise + thickness) * (1 - (x / outerHalf)^2)

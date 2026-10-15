@@ -8,6 +8,7 @@ import {
   TALKER_LATERAL, TALKER_RING_RADIUS, WALK_STRETCHES, walkerPoseAt, WALK_TURN_SECONDS, type Walker,
 } from '../../app/journey/people-layout'
 import { PEOPLE_COUNTS, PERSON_RADIUS, peopleTotal, WALK_SPEED_MAX, WALK_SPEED_MIN } from '../../app/journey/people-specs'
+import { gateLayout } from '../../app/journey/setpiece-layout'
 import {
   clearsPath, COURTYARD_DEPTH, PATH_SEGMENTS, PLACES, ROAD_HALF_WIDTH, roadRects, SIDEWALK_OUTER,
 } from '../../app/journey/path'
@@ -18,7 +19,6 @@ const HALL_FRAMES = hallFrameSlots(8)
 interface Circle { x: number; z: number; r: number }
 interface Box { x: number; z: number; hx: number; hz: number }
 
-const GATE_PILLAR_HALF = 0.3
 const LAMP_POST_RADIUS = 0.05
 const COURTYARD_WALL_HALF_THICKNESS = 0.15
 const COURTYARD_WALL_OFFSET = 3.5
@@ -31,7 +31,7 @@ const POST_CIRCLES: Circle[] = [
 const PILLAR_CIRCLES: Circle[] = [-1, 1].flatMap(side => hallPillarZs().map(z => (
   { x: side * HALL_PILLAR_X, z: PLACES.hall.z + z, r: HALL_PILLAR_RADIUS })))
 const BOXES: Box[] = [
-  ...[-1, 1].map(side => ({ x: side * (ROAD_HALF_WIDTH + 0.4), z: PLACES.entrance.z, hx: GATE_PILLAR_HALF, hz: GATE_PILLAR_HALF })),
+  ...gateLayout().boxes.map(box => ({ x: PLACES.entrance.x + box.x, z: PLACES.entrance.z + box.z, hx: box.width / 2, hz: box.depth / 2 })),
   ...[-1, 1].map(side => ({ x: PLACES.courtyard.x + side * COURTYARD_WALL_OFFSET, z: PLACES.courtyard.z,
     hx: COURTYARD_WALL_HALF_THICKNESS, hz: COURTYARD_DEPTH / 2 })),
   { x: PLACES.courtyard.x, z: PLACES.courtyard.z - COURTYARD_DEPTH / 2, hx: 3.5, hz: COURTYARD_WALL_HALF_THICKNESS },

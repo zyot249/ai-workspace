@@ -1,7 +1,7 @@
 // tests/journey/arch-geometry.test.ts
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { type ArchSpec, parabolicArchGeometry } from '../../app/journey/arch-geometry'
+import { type ArchSpec, archStation, parabolicArchGeometry } from '../../app/journey/arch-geometry'
 
 // Positions are stored as Float32, so comparisons need a Float32-sized tolerance.
 const FLOAT32_EPSILON = 1e-5
@@ -122,6 +122,42 @@ describe('parabolicArchGeometry', () => {
   it('rejects a spec that cannot make a solid arch', () => {
     for (const bad of [{ span: 0 }, { rise: 0 }, { thickness: 0 }, { footWidth: 0 }, { depth: -1 }, { segments: 1 }, { segments: 2.5 }]) {
       expect(() => parabolicArchGeometry({ ...SPEC, ...bad })).toThrow()
+    }
+  })
+})
+
+describe('archStation', () => {
+  it('runs from the inner and outer foot on one side to the other, peaking at the middle', () => {
+    const start = archStation(SPEC, 0)
+    expect(start.inner.x).toBeCloseTo(-INNER_HALF, 9)
+    expect(start.outer.x).toBeCloseTo(-OUTER_HALF, 9)
+    expect(start.inner.y).toBeCloseTo(0, 9)
+    expect(start.outer.y).toBeCloseTo(0, 9)
+    const middle = archStation(SPEC, 0.5)
+    expect(middle.inner.x).toBeCloseTo(0, 9)
+    expect(middle.inner.y).toBeCloseTo(SPEC.rise, 9)
+    expect(middle.outer.y).toBeCloseTo(SPEC.rise + SPEC.thickness, 9)
+    const end = archStation(SPEC, 1)
+    expect(end.inner.x).toBeCloseTo(INNER_HALF, 9)
+    expect(end.outer.x).toBeCloseTo(OUTER_HALF, 9)
+  })
+
+  it('has a unit tangent that is flat at the middle and steep at the feet, pointing along +x', () => {
+    const middle = archStation(SPEC, 0.5).tangent
+    expect(Math.hypot(middle.x, middle.y)).toBeCloseTo(1, 9)
+    expect(middle.x).toBeCloseTo(1, 9)
+    expect(middle.y).toBeCloseTo(0, 9)
+    const foot = archStation(SPEC, 0.02).tangent
+    expect(foot.x).toBeGreaterThan(0)
+    expect(foot.y).toBeGreaterThan(foot.x)
+  })
+
+  it('matches the vertices the geometry builds at the same stations', () => {
+    const points = positions(parabolicArchGeometry({ ...SPEC, segments: 4 }))
+    for (const u of [0.25, 0.5, 0.75]) {
+      const { inner, outer } = archStation(SPEC, u)
+      expect(points.some(p => near(p.x, inner.x) && near(p.y, inner.y))).toBe(true)
+      expect(points.some(p => near(p.x, outer.x) && near(p.y, outer.y))).toBe(true)
     }
   })
 })

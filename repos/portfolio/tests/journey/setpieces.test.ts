@@ -1,10 +1,11 @@
 // tests/journey/setpieces.test.ts
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import { GATE_WHITE_UV, HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME, SET_PIECE_ROLES, SET_PIECE_SPECS } from '../../app/journey/building-specs'
+import { GATE_BASE_UV, GATE_PORTHOLE_UV, GATE_TRIM_UV, GATE_WHITE_UV, HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME, SET_PIECE_ROLES, SET_PIECE_SPECS } from '../../app/journey/building-specs'
 import type { BuildingModels } from '../../app/journey/building-models'
 import { createSetPieces, placeOnPath } from '../../app/journey/setpieces'
 import { parabolicArchGeometry } from '../../app/journey/arch-geometry'
+import { gateDetailParts } from '../../app/journey/gate-detail'
 import { GATE_FOOTPRINT_HALF_X, gateLayout, HOUSE_FRONT_Z, setPieceLayout } from '../../app/journey/setpiece-layout'
 
 function fakeModels(materialNames: readonly string[] = ['palette']): BuildingModels {
@@ -79,27 +80,35 @@ describe('createSetPieces', () => {
     expect(meshes).toHaveLength(1)
     const { arch: { baseY, ...spec }, boxes } = gateLayout()
     const archVertices = parabolicArchGeometry({ ...spec, uv: GATE_WHITE_UV }).getAttribute('position').count
-    // One box (24 vertices) per pier and canopy.
-    expect(meshes[0]!.geometry.getAttribute('position').count).toBe(boxes.length * 24 + archVertices)
+    const detailVertices = gateDetailParts(gateLayout()).reduce((sum, part) => sum + part.geometry.getAttribute('position').count, 0)
+    // One box (24 vertices) per pier and canopy, plus the arch and its detail.
+    expect(meshes[0]!.geometry.getAttribute('position').count).toBe(boxes.length * 24 + archVertices + detailVertices)
     const box = new THREE.Box3().setFromObject(gateGroup)
-    expect(box.max.y).toBeCloseTo(baseY + spec.rise + spec.thickness, 4)
+    // The apex rib stands a little proud of the arch top.
+    const archTop = baseY + spec.rise + spec.thickness
+    expect(box.max.y).toBeGreaterThanOrEqual(archTop - 1e-4)
+    expect(box.max.y).toBeLessThanOrEqual(archTop + 0.1)
     expect(box.min.y).toBeCloseTo(baseY, 4)
     // The canopies reach the footprint edge on both sides.
     expect(box.max.x - box.min.x).toBeCloseTo(GATE_FOOTPRINT_HALF_X * 2, 4)
   })
 
-  it('colors the whole gate one white palette tile', () => {
+  it('colors the gate white, with the ribs, portholes, and trim in their own palette tiles', () => {
     const setPieces = createSetPieces(fallbacks())
     setPieces.stage(fakeModels())
     const gateGroup = setPieces.group.children.find(child => child.name.endsWith('gate'))!
     const meshes = gateGroup.children.filter(object => (object as THREE.Mesh).isMesh) as THREE.Mesh[]
+    const allowed = [GATE_WHITE_UV, GATE_TRIM_UV, GATE_PORTHOLE_UV, GATE_BASE_UV]
+    const seen = new Set<string>()
     for (const mesh of meshes) {
       const uv = mesh.geometry.getAttribute('uv')
       for (let i = 0; i < uv.count; i++) {
-        expect(uv.getX(i)).toBeCloseTo(GATE_WHITE_UV[0], 6)
-        expect(uv.getY(i)).toBeCloseTo(GATE_WHITE_UV[1], 6)
+        const tile = allowed.findIndex(([u, v]) => Math.abs(uv.getX(i) - u) < 1e-6 && Math.abs(uv.getY(i) - v) < 1e-6)
+        expect(tile, `uv ${uv.getX(i)}, ${uv.getY(i)}`).toBeGreaterThanOrEqual(0)
+        seen.add(String(tile))
       }
     }
+    expect(seen.size).toBe(allowed.length)
     // Other groups keep the model's own uv.
     const market = setPieces.group.children.find(child => child.name.endsWith('market'))!
     const marketUv = (market.children.find(object => (object as THREE.Mesh).isMesh) as THREE.Mesh).geometry.getAttribute('uv')
@@ -175,9 +184,9 @@ it('releases all temporary and merged geometry when one material group fails', (
     const disposed = new Set(dispose.mock.contexts)
     for (const result of clone.mock.results) expect(disposed.has(result.value)).toBe(true)
     // The gate succeeds and the hall fails, because the hall mixes the broken beam with the columns. The gate builds
-    // no clones: its four boxes and its arch are temporaries, and its one merged mesh is released with the failed
+    // no clones: its boxes, arch, and detail are temporaries, and its one merged mesh is released with the failed
     // stage. The hall's first successful material merge is the last disposal.
-    const gateTemporaries = 5
+    const gateTemporaries = gateLayout().boxes.length + 1 + gateDetailParts(gateLayout()).length
     const gateMergedMeshes = 1
     const hallFirstMerge = 1
     expect(dispose.mock.calls.length).toBe(clone.mock.calls.length + gateTemporaries + gateMergedMeshes + hallFirstMerge)

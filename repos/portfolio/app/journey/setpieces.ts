@@ -5,6 +5,7 @@ import { type BakedPart, mergeByMaterial, setUniformUv } from './building-geomet
 import type { BuildingModels } from './building-models'
 import type { SceneryPart } from './building-scenery'
 import { GATE_WHITE_UV, HOUSE_WINDOW_SLOTS, SCENERY_GROUP_NAME } from './building-specs'
+import { gateDetailParts } from './gate-detail'
 import { headingFor, pathSegmentAt, PLACES } from './path'
 import { gateLayout, HOUSE_FRONT_Z, type PiecePlacement, type PlacedGroupName, type SetPieceGroupName, setPieceLayout } from './setpiece-layout'
 
@@ -68,12 +69,13 @@ function mergeGroup(name: SetPieceGroupName, temporary: readonly BakedPart[]): T
   return placeOnPath(group, place, direction.dirX, direction.dirZ)
 }
 
-// The gate is white concrete built in code: the arch, a pier and a canopy on each side. Every part takes the beam
-// model's material and the white palette tile, so the gate is one mesh and one draw call.
+// The gate is white concrete built in code: the arch, a pier and a canopy on each side, and the surface detail.
+// Every part takes the beam model's material and a flat palette tile, so the gate is one mesh and one draw call.
 function bakeGate(models: BuildingModels): THREE.Group {
   const [beamPart] = models.setPieces.beam.parts
   if (!beamPart) throw new Error('The beam model has no part to take the gate material from')
-  const { arch: { baseY, ...archSpec }, boxes } = gateLayout()
+  const layout = gateLayout()
+  const { arch: { baseY, ...archSpec }, boxes } = layout
   const parts: BakedPart[] = []
   try {
     for (const box of boxes) {
@@ -85,6 +87,7 @@ function bakeGate(models: BuildingModels): THREE.Group {
     const arch = parabolicArchGeometry({ ...archSpec, uv: GATE_WHITE_UV })
     arch.translate(0, baseY, 0)
     parts.push({ geometry: arch, material: beamPart.material })
+    for (const detail of gateDetailParts(layout)) parts.push({ geometry: detail.geometry, material: beamPart.material })
   } catch (error) {
     for (const part of parts) part.geometry.dispose()
     throw error

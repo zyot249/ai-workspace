@@ -28,14 +28,14 @@ const HALF_TURN = Math.PI / 2
 // Target dimensions in each piece's own model axes: [along x (width), y (height), along z (depth)].
 // The gate is a tall parabolic arch that springs from the ground, with a pier and a flat canopy on each side.
 // The piers and canopies are plain boxes built in code, because the beam model carries stone detail that stretches badly.
-const GATE_INNER_HALF = ROAD_HALF_WIDTH + 0.6
-const GATE_ARCH_RISE = 5.5
-const GATE_ARCH_THICKNESS = 0.55
-const GATE_ARCH_FOOT_WIDTH = 0.9
-const GATE_ARCH_DEPTH = 1
+const GATE_INNER_HALF = ROAD_HALF_WIDTH + 0.3
+const GATE_ARCH_RISE = 3.2
+const GATE_ARCH_THICKNESS = 0.4
+const GATE_ARCH_FOOT_WIDTH = 0.6
+const GATE_ARCH_DEPTH = 0.8
 const GATE_ARCH_SEGMENTS = 24
-const GATE_PIER: readonly [number, number, number] = [1.4, 2.9, 1.2]
-const GATE_CANOPY: readonly [number, number, number] = [4, 0.25, 2.4]
+const GATE_PIER: readonly [number, number, number] = [0.6, 2, 1]
+const GATE_CANOPY: readonly [number, number, number] = [1.6, 0.2, 1.4]
 const HALL_COLUMN: readonly [number, number, number] = [0.52, 3, 0.52]
 const HALL_BEAM_BASE_Y = 1.95
 const HALL_BEAM_HEIGHT = 0.3

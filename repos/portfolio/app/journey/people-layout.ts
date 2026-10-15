@@ -108,7 +108,7 @@ export function createWalkers(count: number, characterCount: number): Walker[] {
 }
 
 // Where a standing group's center sits: a path distance and a side. The three spots keep clear of the
-// lamp stations (every 6 from 3), the gate pillars, and the hall.
+// lamp stations (every 6 from 3), the gate, and the hall.
 export interface TalkerSpot {
   distance: number
   side: 1 | -1
@@ -117,7 +117,7 @@ export interface TalkerSpot {
 export const TALKER_SPOTS: readonly TalkerSpot[] = [
   { distance: 54.5, side: -1 },
   { distance: 65.5, side: -1 },
-  { distance: 7.8, side: 1 },
+  { distance: 6, side: 1 },
 ]
 // Group center lateral offset and the ring the members stand on. The ring stays inside the 3.0 to 3.9 strip.
 export const TALKER_LATERAL = 3.45

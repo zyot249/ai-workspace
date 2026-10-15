@@ -60,5 +60,9 @@ export const GLOW_END = 0.6
 // The pure-white tile of the kit's shared palette texture (x 128 to 160 of 512, y 256 to 384 and a little beyond).
 // The gate uses it for the arch, piers, and canopies so they read as white concrete.
 export const GATE_WHITE_UV: readonly [number, number] = [0.28, 0.57]
+// Other tiles of the same palette, for the gate's detail: grey-blue ribs, dark slate portholes, mid-grey trim.
+export const GATE_TRIM_UV: readonly [number, number] = [0.157, 0.567]
+export const GATE_PORTHOLE_UV: readonly [number, number] = [0.032, 0.567]
+export const GATE_BASE_UV: readonly [number, number] = [0.907, 0.821]
 export const SCENERY_GROUP_NAME = 'journey-scenery'
 export const NEAR_MESH_PREFIX = 'journey-near-building-'
