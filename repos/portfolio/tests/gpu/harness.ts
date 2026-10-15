@@ -25,6 +25,8 @@ let appliedState: StopState | null = null
 let sceneCalls: number | null = null
 let last = { chapter: 0, progress: 0, time: 0 }
 let vehiclesSettled: Promise<void> = Promise.resolve()
+let settleBuildingsOnDispose: () => void = () => {}
+let buildingsSettled: Promise<void> = Promise.resolve()
 let peopleSettled: Promise<void> = Promise.resolve()
 
 function requireRenderer(): THREE.WebGLRenderer {
@@ -66,11 +68,12 @@ const cityGpu = {
   waitForVehicles(): Promise<void> {
     return vehiclesSettled
   },
+  waitForBuildings(): Promise<void> { return buildingsSettled },
   waitForPeople(): Promise<void> {
     return peopleSettled
   },
   mountJourney(options: { tier: 'full' | 'lite' | 'reduced'; lowPower: boolean; width?: number; height?: number; initialDark?: boolean;
-    directPipeline?: boolean; failWetRoadTarget?: boolean; vehicles?: boolean; people?: boolean },
+    directPipeline?: boolean; failWetRoadTarget?: boolean; vehicles?: boolean; people?: boolean; buildings?: boolean },
     observers?: Pick<JourneySceneOptions, 'onRenderer' | 'onSceneReady' | 'onStateApplied'>) {
     cityGpu.dispose()
     let settleVehicles: () => void = () => {}
@@ -80,6 +83,10 @@ const cityGpu = {
     let settlePeople: () => void = () => {}
     peopleSettled = new Promise<void>(resolve => { settlePeople = resolve })
     if (!options.people || options.tier === 'reduced') settlePeople()
+    let settleBuildings: () => void = () => {}
+    buildingsSettled = new Promise<void>(resolve => { settleBuildings = resolve })
+    settleBuildingsOnDispose = settleBuildings
+    if (!options.buildings) settleBuildings()
     canvas = document.createElement('canvas')
     document.body.append(canvas)
     last = { chapter: 0, progress: 0, time: 0 }
@@ -102,6 +109,9 @@ const cityGpu = {
         loadPeopleModels: options.people ? undefined : () => new Promise<never>(() => {}),
         onPeopleReady: settlePeople,
         onPeopleFailed: settlePeople,
+        loadBuildingModels: options.buildings ? undefined : () => new Promise<never>(() => {}),
+        onBuildingsReady: settleBuildings,
+        onBuildingsFailed: settleBuildings,
         wetRoad: options.failWetRoadTarget ? { checkComplete: () => false } : undefined,
         onRenderer(value) {
           renderer = value; value.setPixelRatio(1)
@@ -123,6 +133,7 @@ const cityGpu = {
       // A scene that throws never reports on the vehicles, so settle here or waitForVehicles would hang.
       settleVehicles()
       settlePeople()
+      settleBuildings()
       throw error
     } finally {
       window.__cityGpuRendererObserver = previousObserver
@@ -212,6 +223,7 @@ const cityGpu = {
     return cityGpu.renderJourney({ ...last, frames: 1 })
   },
   dispose() {
+    settleBuildingsOnDispose()
     journey?.dispose()
     journey = null
     renderer = null

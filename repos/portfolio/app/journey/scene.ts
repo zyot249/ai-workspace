@@ -1,3 +1,7 @@
+import { attachBuildingModels, type BuildingModels, loadBuildingModels } from './building-models'
+import { type BuildingScenery, createBuildingScenery } from './building-scenery'
+import { SCENERY_GROUP_NAME } from './building-specs'
+import { createSetPieces, placeOnPath } from './setpieces'
 import { createPeople, type People } from './people'
 import { peopleLayout } from './people-layout'
 import { attachPeopleModels, loadPeopleModels, type PeopleModels } from './people-models'
@@ -12,7 +16,7 @@ import { createFacadeUniforms } from './facade-material'
 import { CORNER_BLOCKS } from './footprints'
 import { damp, dampState, lerpLook } from './interpolate'
 import { createLamps, LAMP_SPACING_FULL, LAMP_SPACING_LOW_POWER, STREET_NAMES } from './lamps'
-import { BUILDING_CLEARANCE, COURTYARD_DEPTH, headingFor, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH } from './path'
+import { BUILDING_CLEARANCE, COURTYARD_DEPTH, PATH_SEGMENTS, PATH_TOTAL_LENGTH, type PathSegment, pathPointAt, PLACES, ROAD_HALF_WIDTH } from './path'
 import type { StopState } from './stops'
 import { createPostPipeline, POST_EMISSIVES, preservingState, skyForDirectPipeline, TONE_MAPPING, type PostPipeline } from './post'
 import { seeded } from './random'
@@ -42,6 +46,9 @@ export interface JourneyScene {
 }
 
 export interface JourneySceneOptions {
+  loadBuildingModels?: () => Promise<BuildingModels>
+  onBuildingsReady?: () => void
+  onBuildingsFailed?: (error: unknown) => void
   lowPower?: boolean
   // Test seam: lets a GPU test make the reflection target fail its framebuffer check.
   wetRoad?: WetRoadOptions
@@ -208,8 +215,10 @@ function createPictureTexture(title: string, date: string | undefined, color: TH
 // `hallFrameSlots`), stretched to fill the bay's wall segment and showing the
 // project's title. Full project detail still scrolls over this in HTML.
 // Authored facing world -Z; the caller rotates the group to match its segment.
-function createColonnade(projectItems: readonly ExhibitItem[]): THREE.Group {
+function createColonnade(projectItems: readonly ExhibitItem[]): { group: THREE.Group; structure: THREE.Group } {
   const group = new THREE.Group()
+  const structure = new THREE.Group()
+  group.add(structure)
   const material = new THREE.MeshStandardMaterial({ color: STONE_LIT, roughness: 0.6, metalness: 0.1 })
   const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x3f3f52, roughness: 0.8 })
   const pillarZs = hallPillarZs()
@@ -217,15 +226,15 @@ function createColonnade(projectItems: readonly ExhibitItem[]): THREE.Group {
     for (const z of pillarZs) {
       const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 3, 8), material)
       pillar.position.set(side * HALL_PILLAR_X, 0.5, z)
-      group.add(pillar)
+      structure.add(pillar)
     }
     const architrave = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, HALL_LENGTH), material)
     architrave.position.set(side * HALL_PILLAR_X, 2.1, 0)
-    group.add(architrave)
+    structure.add(architrave)
 
     const wall = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.4, HALL_LENGTH), wallMaterial)
     wall.position.set(side * HALL_WALL_X, 0.2, 0)
-    group.add(wall)
+    structure.add(wall)
   }
 
   const borderMaterial = new THREE.MeshStandardMaterial({ color: 0x242430, roughness: 0.7 })
@@ -250,14 +259,16 @@ function createColonnade(projectItems: readonly ExhibitItem[]): THREE.Group {
     group.add(picture)
   }
 
-  return group
+  return { group, structure }
 }
 
 // Market square: a scatter of stalls (box base + pyramid roof) and lamp posts
 // off both sides of the road. Authored facing world -Z; the caller rotates
 // the group to match its segment.
-function createMarket(): THREE.Group {
+function createMarket(): { group: THREE.Group; stalls: THREE.Group } {
   const group = new THREE.Group()
+  const stalls = new THREE.Group()
+  group.add(stalls)
   const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.9 })
   const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x8a3324, roughness: 0.8 })
   const stallCount = 6
@@ -268,11 +279,11 @@ function createMarket(): THREE.Group {
     const z = (seeded(seed + 1) - 0.5) * 12
     const base = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1, 1.2), baseMaterial)
     base.position.set(x, -0.5, z)
-    group.add(base)
+    stalls.add(base)
     const roof = new THREE.Mesh(new THREE.ConeGeometry(1, 0.7, 4), roofMaterial)
     roof.rotation.y = Math.PI / 4
     roof.position.set(x, 0.35, z)
-    group.add(roof)
+    stalls.add(roof)
   }
   const lampMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2a2f, roughness: 0.7 })
   const lampGlow = new THREE.MeshBasicMaterial({ color: POST_EMISSIVES.lamp.hex })
@@ -286,14 +297,17 @@ function createMarket(): THREE.Group {
     glow.position.set(side * (ROAD_HALF_WIDTH + 0.3), 1.25, 0)
     group.add(glow)
   }
-  return group
+  return { group, stalls }
 }
 
 // Home courtyard: low perimeter walls open toward the road, with a small house
 // and a couple of always-lit windows. The journey's ending point. Authored
 // facing world -Z; the caller rotates the group to match its segment.
-function createCourtyard(): THREE.Group {
+function createCourtyard(): { group: THREE.Group; house: THREE.Group; windows: THREE.Mesh[] } {
   const group = new THREE.Group()
+  const structure = new THREE.Group()
+  const windows: THREE.Mesh[] = []
+  group.add(structure)
   const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x55504a, roughness: 0.85 })
   const depth = COURTYARD_DEPTH
   const width = 7
@@ -312,11 +326,11 @@ function createCourtyard(): THREE.Group {
   const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x4a2f24, roughness: 0.8 })
   const house = new THREE.Mesh(new THREE.BoxGeometry(3, 1.8, 3), houseMaterial)
   house.position.set(0, -0.1, backZ + 1.8)
-  group.add(house)
+  structure.add(house)
   const roof = new THREE.Mesh(new THREE.ConeGeometry(2.3, 1.3, 4), roofMaterial)
   roof.rotation.y = Math.PI / 4
   roof.position.set(0, 1.4, backZ + 1.8)
-  group.add(roof)
+  structure.add(roof)
 
   const windowMaterial = new THREE.MeshBasicMaterial({ color: POST_EMISSIVES.courtyard.hex })
   windowMaterial.name = 'journey-courtyard-window'
@@ -325,16 +339,9 @@ function createCourtyard(): THREE.Group {
     const win = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.5), windowMaterial)
     win.position.set(side * 0.9, 0, backZ + 1.8 + 1.51)
     group.add(win)
+    windows.push(win)
   }
-  return group
-}
-
-// Places a set-piece group, authored facing world -Z, at `point` and rotates
-// it to face `dirX, dirZ` (the heading of the segment it belongs to).
-function placeOnPath(group: THREE.Group, point: { x: number, z: number }, dirX: number, dirZ: number): THREE.Group {
-  group.position.set(point.x, 0, point.z)
-  group.rotation.y = headingFor(dirX, dirZ)
-  return group
+  return { group, house: structure, windows }
 }
 
 export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier, 'none'>, projectItems: readonly ExhibitItem[], options: JourneySceneOptions = {}): JourneyScene {
@@ -348,12 +355,14 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   let post: PostPipeline | null = null
   let wetRoad: WetRoad | null = null
   let people: People | null = null
+  let scenery: BuildingScenery | null = null
   let disposed = false
   function dispose() {
     if (disposed) return
     disposed = true
     post?.dispose()
     people?.dispose()
+    scenery?.dispose()
     if (wetRoad) {
       wetRoad.dispose()
       scene.remove(wetRoad.overlay) // its geometry and material are owned by wetRoad, not the scene sweep below
@@ -415,10 +424,42 @@ export function createJourneyScene(canvas: HTMLCanvasElement, tier: Exclude<Tier
   scene.add(cornerBlocks)
   reflectInPuddles(cornerBlocks)
 
-  scene.add(placeOnPath(createGate(), PLACES.entrance, seg1.dirX, seg1.dirZ))
-  scene.add(placeOnPath(createColonnade(projectItems), PLACES.hall, seg1.dirX, seg1.dirZ))
-  scene.add(placeOnPath(createMarket(), PLACES.market, seg2.dirX, seg2.dirZ))
-  scene.add(placeOnPath(createCourtyard(), PLACES.courtyard, seg3.dirX, seg3.dirZ))
+  const gate = createGate()
+  const colonnade = createColonnade(projectItems)
+  const market = createMarket()
+  const courtyard = createCourtyard()
+  scene.add(placeOnPath(gate, PLACES.entrance, seg1.dirX, seg1.dirZ))
+  scene.add(placeOnPath(colonnade.group, PLACES.hall, seg1.dirX, seg1.dirZ))
+  scene.add(placeOnPath(market.group, PLACES.market, seg2.dirX, seg2.dirZ))
+  scene.add(placeOnPath(courtyard.group, PLACES.courtyard, seg3.dirX, seg3.dirZ))
+
+  // Building scenery: the GLB set-pieces (and, from Task 6, the near layer) arrive after the first frame.
+  const setPieces = createSetPieces({
+    gate, hall: colonnade.structure, market: market.stalls, house: courtyard.house, houseWindows: courtyard.windows,
+  })
+  const sceneryGroup = new THREE.Group()
+  sceneryGroup.name = SCENERY_GROUP_NAME
+  sceneryGroup.add(setPieces.group)
+  scene.add(sceneryGroup)
+  const buildingScenery = createBuildingScenery([setPieces])
+  scenery = buildingScenery
+  async function warmSceneryShaders(): Promise<void> {
+    await preservingState(renderer, () => {
+      renderer.setRenderTarget(post?.sceneTarget ?? null)
+      return renderer.compileAsync(sceneryGroup, camera, scene)
+    })
+  }
+  void attachBuildingModels({
+    target: buildingScenery,
+    load: options.loadBuildingModels ?? (() => loadBuildingModels()),
+    isDisposed: () => disposed,
+    warm: warmSceneryShaders,
+    onReady: options.onBuildingsReady,
+    onError(error) {
+      console.warn('Journey buildings: the GLB models could not be used. Keeping the primitive buildings.', error)
+      options.onBuildingsFailed?.(error)
+    },
+  })
 
   // Street life: lamps follow `lowPower` for count, cars follow reduced motion (none) and `lowPower`.
   const lamps = createLamps(lowPower ? LAMP_SPACING_LOW_POWER : LAMP_SPACING_FULL)

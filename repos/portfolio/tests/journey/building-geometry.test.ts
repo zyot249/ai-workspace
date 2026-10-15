@@ -103,3 +103,14 @@ it('releases baked geometry when a later mesh is unsupported', () => {
   expect(() => normalizePiece(root, { scale: 1, facingY: 0 })).toThrow('multi-material')
   expect(disposed).toBe(true)
 })
+
+it('bakes quantized normalized attributes without clipping or rounding transformed positions', () => {
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Int16BufferAttribute([-32767, 0, -32767, 32767, 32767, 32767], 3, true))
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial())
+  mesh.scale.set(2, 3, 2)
+  const root = new THREE.Group(); root.add(mesh)
+  const piece = normalizePiece(root, { scale: 2, facingY: 0 })
+  expect(piece.size).toEqual([8, 6, 8])
+  expect(piece.parts[0]!.geometry.getAttribute('position').array).toBeInstanceOf(Float32Array)
+})

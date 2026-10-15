@@ -22,12 +22,23 @@ export function normalizePiece(root: THREE.Object3D, spec: Pick<PieceSpec, 'scal
   const baked: BakedPart[] = []
   try {
     root.traverse(object => {
-    const mesh = object as THREE.Mesh
-    if (!mesh.isMesh) return
-    if (Array.isArray(mesh.material)) throw new Error('A building model has a multi-material mesh, which is not supported')
-    const geometry = mesh.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(toScene, mesh.matrixWorld))
-    baked.push({ geometry, material: mesh.material })
-  })
+      const mesh = object as THREE.Mesh
+      if (!mesh.isMesh) return
+      if (Array.isArray(mesh.material)) throw new Error('A building model has a multi-material mesh, which is not supported')
+      const geometry = mesh.geometry.clone()
+      // GLTFLoader retains KHR_mesh_quantization integer attributes. Matrix baking must
+      // write floats: integer attributes would clamp/overflow transformed positions.
+      for (const name of Object.keys(geometry.attributes)) {
+        const source = geometry.getAttribute(name)
+        const values = new Float32Array(source.count * source.itemSize)
+        for (let i = 0; i < source.count; i++) {
+          for (let c = 0; c < source.itemSize; c++) values[i * source.itemSize + c] = source.getComponent(i, c)
+        }
+        geometry.setAttribute(name, new THREE.Float32BufferAttribute(values, source.itemSize))
+      }
+      geometry.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toScene, mesh.matrixWorld))
+      baked.push({ geometry, material: mesh.material })
+    })
   } catch (error) {
     for (const part of baked) part.geometry.dispose()
     throw error
